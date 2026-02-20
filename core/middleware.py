@@ -1,6 +1,6 @@
 """
 Custom middleware for Zero-Bot API.
-Handles logging, authentication, data isolation validation, and economic rule enforcement.
+Handles logging, authentication, and security.
 """
 
 import json
@@ -10,9 +10,6 @@ import logging
 from datetime import datetime
 from django.http import JsonResponse
 from django.utils.deprecation import MiddlewareMixin
-from django.urls import resolve
-from core.models import Bot, validate_bot_access
-from config.tokenomics import validate_economic_rules
 
 logger = logging.getLogger('zero_bot')
 
@@ -54,68 +51,8 @@ class RequestLoggingMiddleware(MiddlewareMixin):
         return response
 
 
-class DataIsolationMiddleware(MiddlewareMixin):
-    """Middleware to enforce data isolation by bot_id."""
-    
-    def process_view(self, request, view_func, view_args, view_kwargs):
-        """Validate data isolation for bot-specific endpoints."""
-        
-        # Skip validation for non-API endpoints
-        if not request.path.startswith('/api/v1/bots/'):
-            return None
-        
-        # Extract bot_id from URL
-        bot_id = view_kwargs.get('bot_id')
-        if not bot_id:
-            return None
-        
-        # Validate bot exists and is active
-        bot = Bot.get_by_bot_id(bot_id)
-        if not bot:
-            return JsonResponse({
-                'error': 'bot_not_found',
-                'message': f'Bot with ID {bot_id} not found or inactive',
-                'timestamp': datetime.utcnow().isoformat(),
-                'request_id': getattr(request, 'request_id', 'unknown')
-            }, status=404)
-        
-        # Add bot to request for use in views
-        request.bot = bot
-        
-        # Log data isolation info
-        logger.debug(f"[{getattr(request, 'request_id', 'unknown')}] Data isolation: bot_id={bot_id}")
-        
-        return None
-
-
-class EconomicValidationMiddleware(MiddlewareMixin):
-    """Middleware to validate economic rules for payment-related endpoints."""
-    
-    def process_view(self, request, view_func, view_args, view_kwargs):
-        """Validate economic rules for payment endpoints."""
-        
-        # Only validate payment-related endpoints
-        if not any(path in request.path for path in ['/payments/', '/messages/']):
-            return None
-        
-        # Skip validation for GET requests
-        if request.method == 'GET':
-            return None
-        
-        try:
-            # Validate economic rules
-            validate_economic_rules()
-        except Exception as e:
-            logger.error(f"Economic rules validation failed: {e}")
-            return JsonResponse({
-                'error': 'economic_validation_failed',
-                'message': 'Economic rules validation failed',
-                'details': {'error': str(e)},
-                'timestamp': datetime.utcnow().isoformat(),
-                'request_id': getattr(request, 'request_id', 'unknown')
-            }, status=400)
-        
-        return None
+# DataIsolationMiddleware and EconomicValidationMiddleware will be recreated
+# in the new dual-chain architecture
 
 
 class CORSMiddleware(MiddlewareMixin):

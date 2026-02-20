@@ -28,7 +28,7 @@ INSTALLED_APPS = [
     'corsheaders',
     
     # Zero-Bot apps
-    'apps.message_router',
+    # (will be recreated in new architecture)
 ]
 
 MIDDLEWARE = [
@@ -44,8 +44,6 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'core.middleware.DataIsolationMiddleware',
-    'core.middleware.EconomicValidationMiddleware',
     'core.middleware.TelegramWebhookAuthMiddleware',
     'core.middleware.ErrorHandlingMiddleware',
 ]
@@ -70,26 +68,13 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'core.wsgi.application'
 
-# Database - Using MongoDB via MongoEngine
+# Database - SQLite for MVP, PostgreSQL for production
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
-
-# MongoDB Configuration
-import mongoengine
-MONGODB_SETTINGS = {
-    'host': os.getenv('MONGODB_HOST', 'localhost'),
-    'port': int(os.getenv('MONGODB_PORT', 27017)),
-    'db': os.getenv('MONGODB_DB', 'zero_bot'),
-    'username': os.getenv('MONGODB_USER', ''),
-    'password': os.getenv('MONGODB_PASSWORD', ''),
-}
-
-# Connect to MongoDB
-mongoengine.connect(**MONGODB_SETTINGS)
 
 # Redis Configuration
 REDIS_SETTINGS = {
