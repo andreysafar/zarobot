@@ -28,10 +28,7 @@ INSTALLED_APPS = [
     'corsheaders',
     
     # Zero-Bot apps
-    'apps.bot_factory',
     'apps.message_router',
-    'apps.payments',
-    'apps.tools_market',
 ]
 
 MIDDLEWARE = [
