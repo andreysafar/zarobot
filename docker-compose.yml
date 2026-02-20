@@ -10,11 +10,6 @@ services:
       - "8000:8000"
     environment:
       - DEBUG=True
-      - MONGODB_HOST=mongodb
-      - MONGODB_PORT=27017
-      - MONGODB_DB=zero_bot
-      - MONGODB_USERNAME=admin
-      - MONGODB_PASSWORD=password123
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_PASSWORD=redis123
@@ -22,35 +17,11 @@ services:
       - ./zero_bot:/app/zero_bot
       - bot_data:/data/bots
     depends_on:
-      - mongodb
       - redis
     networks:
       - zero_bot_network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-
-  # MongoDB for data storage
-  mongodb:
-    image: mongo:6.0
-    container_name: zero_bot_mongodb
-    restart: unless-stopped
-    ports:
-      - "27017:27017"
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: admin
-      MONGO_INITDB_ROOT_PASSWORD: password123
-      MONGO_INITDB_DATABASE: zero_bot
-    volumes:
-      - mongodb_data:/data/db
-      - ./scripts/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
-    networks:
-      - zero_bot_network
-    healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -78,8 +49,6 @@ services:
 
 
 volumes:
-  mongodb_data:
-    driver: local
   redis_data:
     driver: local
   bot_data:
