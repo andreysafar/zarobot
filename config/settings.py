@@ -28,7 +28,7 @@ INSTALLED_APPS = [
     'corsheaders',
     
     # Zero-Bot apps
-    # (will be recreated in new architecture)
+    'apps.bot_core',
 ]
 
 MIDDLEWARE = [

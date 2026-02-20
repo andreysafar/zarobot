@@ -9,7 +9,7 @@ from telethon import TelegramClient, events
 from dotenv import load_dotenv
 
 # --- Django Setup ---
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
 django.setup()
 # --- End Django Setup ---
 
