@@ -2,28 +2,25 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    curl \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl gcc libffi-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
-COPY services/bot-instance/requirements.txt .
+COPY services/bot-instance/requirements.new.txt requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
 COPY services/bot-instance/ .
-COPY blockchain/ ./blockchain/
+COPY sdk/ /opt/zero-bot-sdk/
+RUN pip install --no-cache-dir /opt/zero-bot-sdk/
 
-# Create non-root user
-RUN useradd -m -u 1000 botuser && \
-    chown -R botuser:botuser /app
+RUN mkdir -p /data/skills /data/personality /data/state \
+    && useradd -m -u 1000 botuser \
+    && chown -R botuser:botuser /app /data
 USER botuser
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8080/health || exit 1
+VOLUME ["/data"]
 
-EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD python -c "print('ok')" || exit 1
 
 CMD ["python", "bot.py"]

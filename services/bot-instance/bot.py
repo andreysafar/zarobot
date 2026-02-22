@@ -1,428 +1,227 @@
 """
-Individual Bot Instance - Каждый бот в отдельном контейнере
-Интегрируется с Langflow для управления промптами
+Zero Bot Instance — Tamagotchi AI Bot
+Each bot runs in its own container with a personality and skills.
 """
 
 import asyncio
 import json
 import os
 from datetime import datetime
-from typing import Dict, Any, Optional
+from pathlib import Path
+from typing import Any
 
 import httpx
-import redis
-from telethon import TelegramClient, events
-from telethon.tl.types import User
-from fastapi import FastAPI
 from loguru import logger
-import uvicorn
+from telethon import TelegramClient, events
 
-# Configuration from environment
-BOT_CONFIG = json.loads(os.getenv("BOT_CONFIG", "{}"))
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-CORE_API_URL = os.getenv("CORE_API_URL")
-REDIS_URL = os.getenv("REDIS_URL")
-BOT_CHANNEL = os.getenv("BOT_CHANNEL")
-BOT_PASSPORT_ID = os.getenv("BOT_PASSPORT_ID")
+TELEGRAM_API_ID = int(os.getenv("TELEGRAM_API_ID", "0"))
+TELEGRAM_API_HASH = os.getenv("TELEGRAM_API_HASH", "")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+BOT_ID = os.getenv("BOT_ID", "unknown")
+OWNER_TELEGRAM_ID = int(os.getenv("OWNER_TELEGRAM_ID", "0"))
+REDIS_URL = os.getenv("REDIS_URL", "")
+LANGFLOW_API_URL = os.getenv("LANGFLOW_API_URL", "")
 
-# Initialize services
-redis_client = redis.from_url(REDIS_URL) if REDIS_URL else None
-health_app = FastAPI(title=f"Bot Instance {BOT_PASSPORT_ID}")
+DATA_DIR = Path("/data")
+PERSONALITY_DIR = DATA_DIR / "personality"
+SKILLS_DIR = DATA_DIR / "skills"
+STATE_FILE = DATA_DIR / "state" / "state.json"
+
+
+class PersonalityLoader:
+    """Loads personality from manifest + prompt files."""
+
+    def __init__(self, personality_dir: Path):
+        self.dir = personality_dir
+        self.manifest: dict = {}
+        self.system_prompt = ""
+        self.system_prompt_free = ""
+        self.greeting_template = ""
+        self.fallback = ""
+        self._load()
+
+    def _load(self):
+        manifest_path = self.dir / "manifest.json"
+        if not manifest_path.exists():
+            logger.warning("No personality manifest found, using defaults")
+            return
+
+        self.manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        prompts_cfg = self.manifest.get("prompts", {})
+
+        for attr, key in [
+            ("system_prompt", "system"),
+            ("system_prompt_free", "system_free"),
+            ("greeting_template", "greeting"),
+            ("fallback", "fallback"),
+        ]:
+            path = self.dir / prompts_cfg.get(key, "")
+            if path.exists():
+                setattr(self, attr, path.read_text(encoding="utf-8").strip())
+
+    def get_greeting(self, user_name: str, bot_name: str) -> str:
+        if self.greeting_template:
+            try:
+                return self.greeting_template.format(user_name=user_name, bot_name=bot_name)
+            except KeyError:
+                return self.greeting_template
+        return f"Привет, {user_name}! Я {bot_name} 👋"
+
+    @property
+    def display_name(self) -> str:
+        return self.manifest.get("display_name", "Zero Bot")
+
+    @property
+    def ai_model(self) -> dict:
+        return self.manifest.get("ai_model", {})
+
+    @property
+    def behavior(self) -> dict:
+        return self.manifest.get("behavior", {})
+
+
+class BotState:
+    """Persistent bot state: XP, level, stats."""
+
+    def __init__(self, state_file: Path):
+        self.file = state_file
+        self.xp = 0
+        self.level = 0
+        self.messages_total = 0
+        self.created_at = datetime.utcnow().isoformat()
+        self._load()
+
+    def _load(self):
+        if self.file.exists():
+            data = json.loads(self.file.read_text())
+            self.xp = data.get("xp", 0)
+            self.level = data.get("level", 0)
+            self.messages_total = data.get("messages_total", 0)
+            self.created_at = data.get("created_at", self.created_at)
+
+    def save(self):
+        self.file.parent.mkdir(parents=True, exist_ok=True)
+        self.file.write_text(json.dumps({
+            "xp": self.xp,
+            "level": self.level,
+            "messages_total": self.messages_total,
+            "created_at": self.created_at,
+        }, indent=2))
+
+    def add_xp(self, points: int = 1):
+        self.xp += points
+        self.messages_total += 1
+        new_level = self.xp // 100
+        if new_level > self.level:
+            self.level = new_level
+            logger.info(f"Level up! Now level {self.level}")
+        self.save()
+
 
 class ZeroBotInstance:
-    """Индивидуальный экземпляр Zero Bot"""
-    
+    """Individual Zero Bot instance — one per Docker container."""
+
     def __init__(self):
-        self.config = BOT_CONFIG
-        self.bot_data = self.config.get("bot_data", {})
-        self.personality_data = self.config.get("personality_data", {})
-        self.langflow_config = self.config.get("langflow_config", {})
-        
-        # Telegram client
-        api_id = int(os.getenv("TELEGRAM_API_ID", "0"))
-        api_hash = os.getenv("TELEGRAM_API_HASH", "")
-        
-        if not api_id or not api_hash:
-            raise ValueError("TELEGRAM_API_ID и TELEGRAM_API_HASH обязательны")
-        
+        self.personality = PersonalityLoader(PERSONALITY_DIR)
+        self.state = BotState(STATE_FILE)
+        self.conversations: dict[int, list[dict]] = {}
+
         self.client = TelegramClient(
-            f'bot_{BOT_PASSPORT_ID}',
-            api_id,
-            api_hash
+            f"/data/state/bot_{BOT_ID}",
+            TELEGRAM_API_ID,
+            TELEGRAM_API_HASH,
         )
-        
-        # State
-        self.is_running = False
-        self.conversation_contexts = {}
-        
-        logger.info(f"Инициализирован бот {BOT_PASSPORT_ID}")
-    
+
+        logger.info(f"Bot {BOT_ID} initialized | personality={self.personality.display_name}")
+
     async def start(self):
-        """Запуск бота"""
-        try:
-            await self.client.start(bot_token=TELEGRAM_BOT_TOKEN)
-            self.is_running = True
-            
-            # Регистрация обработчиков
-            self.register_handlers()
-            
-            # Подписка на обновления конфигурации
-            if redis_client:
-                asyncio.create_task(self.listen_for_config_updates())
-            
-            # Отправка heartbeat
-            asyncio.create_task(self.heartbeat_loop())
-            
-            logger.info(f"Бот {BOT_PASSPORT_ID} запущен")
-            
-            # Уведомление Core API о запуске
-            await self.notify_core_api("bot_started")
-            
-        except Exception as e:
-            logger.error(f"Ошибка запуска бота: {e}")
-            raise
-    
-    def register_handlers(self):
-        """Регистрация обработчиков сообщений"""
-        
-        @self.client.on(events.NewMessage(pattern='/start'))
-        async def start_handler(event):
-            """Обработчик команды /start"""
-            user = await event.get_sender()
-            
-            # Проверка владельца
-            if await self.is_owner(user):
-                welcome_msg = self.get_welcome_message()
-            else:
-                welcome_msg = self.get_guest_message()
-            
-            await event.respond(welcome_msg)
-            
-            # Логирование
-            await self.log_interaction(user, "/start", welcome_msg)
-        
-        @self.client.on(events.NewMessage(pattern='/config'))
-        async def config_handler(event):
-            """Обработчик команды /config - открытие Langflow WebApp"""
-            user = await event.get_sender()
-            
-            if not await self.is_owner(user):
-                await event.respond("❌ Только владелец может настраивать бота")
-                return
-            
-            webapp_url = self.get_langflow_webapp_url()
-            
-            await event.respond(
-                "🎛️ **Настройка бота**\n\n"
-                "Нажмите кнопку ниже для открытия панели управления:",
-                buttons=[
-                    [self.client.build_reply_markup([
-                        {"text": "🚀 Открыть Langflow", "url": webapp_url}
-                    ])]
-                ]
+        await self.client.start(bot_token=TELEGRAM_BOT_TOKEN)
+        self._register_handlers()
+        logger.info(f"Bot {BOT_ID} started | level={self.state.level} xp={self.state.xp}")
+        await self.client.run_until_disconnected()
+
+    def _register_handlers(self):
+
+        @self.client.on(events.NewMessage(pattern="/start"))
+        async def on_start(event):
+            sender = await event.get_sender()
+            name = getattr(sender, "first_name", None) or getattr(sender, "username", "User")
+            greeting = self.personality.get_greeting(
+                user_name=name,
+                bot_name=self.personality.display_name,
             )
-        
-        @self.client.on(events.NewMessage(func=lambda e: not e.text.startswith('/')))
-        async def message_handler(event):
-            """Основной обработчик сообщений"""
-            user = await event.get_sender()
-            message_text = event.text
-            
+            await event.respond(greeting)
+
+        @self.client.on(events.NewMessage(pattern="/stats"))
+        async def on_stats(event):
+            await event.respond(
+                f"📊 **{self.personality.display_name}**\n\n"
+                f"Level: {self.state.level}\n"
+                f"XP: {self.state.xp}\n"
+                f"Messages: {self.state.messages_total}\n"
+                f"Created: {self.state.created_at[:10]}"
+            )
+
+        @self.client.on(events.NewMessage(pattern="/help"))
+        async def on_help(event):
+            await event.respond(
+                f"🤖 **{self.personality.display_name}**\n\n"
+                "Команды:\n"
+                "/start — Приветствие\n"
+                "/stats — Статистика бота\n"
+                "/help — Помощь\n\n"
+                "Просто пишите — я отвечу!"
+            )
+
+        @self.client.on(events.NewMessage(func=lambda e: e.text and not e.text.startswith("/")))
+        async def on_message(event):
+            sender = await event.get_sender()
+            text = event.text
+
             try:
-                # Получение контекста разговора
-                context = self.get_conversation_context(user.id)
-                
-                # Обработка через Langflow или базовую логику
-                if self.langflow_config.get("enabled"):
-                    response = await self.process_with_langflow(message_text, context, user)
-                else:
-                    response = await self.process_with_personality(message_text, context, user)
-                
-                # Отправка ответа
+                response = await self._process_message(text, sender)
                 await event.respond(response)
-                
-                # Обновление контекста
-                self.update_conversation_context(user.id, message_text, response)
-                
-                # Логирование
-                await self.log_interaction(user, message_text, response)
-                
-                # Начисление XP владельцу
-                if await self.is_owner(user):
-                    await self.add_experience_points(1)
-                
+                self.state.add_xp(1)
             except Exception as e:
-                logger.error(f"Ошибка обработки сообщения: {e}")
-                await event.respond("😅 Извините, произошла ошибка. Попробуйте еще раз.")
-    
-    async def process_with_langflow(self, message: str, context: Dict, user: User) -> str:
-        """Обработка сообщения через Langflow"""
-        try:
-            langflow_url = self.langflow_config.get("api_url")
-            flow_id = self.langflow_config.get("flow_id")
-            
-            if not langflow_url or not flow_id:
-                return await self.process_with_personality(message, context, user)
-            
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    f"{langflow_url}/api/v1/run/{flow_id}",
-                    json={
-                        "input_value": message,
-                        "context": context,
-                        "user_info": {
-                            "id": user.id,
-                            "username": user.username,
-                            "first_name": user.first_name
-                        },
-                        "bot_info": {
-                            "passport_id": BOT_PASSPORT_ID,
-                            "personality": self.personality_data
-                        }
-                    },
-                    timeout=30.0
-                )
-                
-                if response.status_code == 200:
-                    result = response.json()
-                    return result.get("output", "Не удалось получить ответ")
-                else:
-                    logger.error(f"Ошибка Langflow: {response.status_code}")
-                    return await self.process_with_personality(message, context, user)
-                    
-        except Exception as e:
-            logger.error(f"Ошибка Langflow: {e}")
-            return await self.process_with_personality(message, context, user)
-    
-    async def process_with_personality(self, message: str, context: Dict, user: User) -> str:
-        """Базовая обработка через личность"""
-        try:
-            if not self.personality_data:
-                return "👋 Привет! Я Zero Bot. Моя личность еще не настроена."
-            
-            system_prompt = self.personality_data.get("system_prompt", "")
-            
-            # Простая обработка (в реальной системе здесь был бы вызов LLM)
-            if "привет" in message.lower():
-                return f"👋 Привет! Я {self.bot_data.get('name', 'Zero Bot')}. Как дела?"
-            elif "как дела" in message.lower():
-                return "Отлично! Готов помочь вам 😊"
-            elif "помощь" in message.lower():
-                return self.get_help_message()
-            else:
-                return f"Интересно! Вы сказали: '{message}'. Расскажите больше!"
-                
-        except Exception as e:
-            logger.error(f"Ошибка обработки личности: {e}")
-            return "😅 Извините, не могу обработать ваше сообщение прямо сейчас."
-    
-    async def is_owner(self, user: User) -> bool:
-        """Проверка, является ли пользователь владельцем бота"""
-        # В реальной системе здесь была бы проверка через TON адрес
-        owner_ton_address = self.config.get("owner_ton_address")
-        
-        # Временная заглушка - проверка через Core API
-        try:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(
-                    f"{CORE_API_URL}/api/v1/bot-core/bot-passports/{BOT_PASSPORT_ID}/owner-check/",
-                    params={"telegram_user_id": user.id}
-                )
-                return response.status_code == 200 and response.json().get("is_owner", False)
-        except:
-            return False
-    
-    def get_conversation_context(self, user_id: int) -> Dict:
-        """Получение контекста разговора"""
-        if user_id not in self.conversation_contexts:
-            self.conversation_contexts[user_id] = {
-                "messages": [],
-                "created_at": datetime.utcnow().isoformat()
-            }
-        return self.conversation_contexts[user_id]
-    
-    def update_conversation_context(self, user_id: int, user_message: str, bot_response: str):
-        """Обновление контекста разговора"""
-        context = self.get_conversation_context(user_id)
-        context["messages"].append({
-            "user": user_message,
-            "bot": bot_response,
-            "timestamp": datetime.utcnow().isoformat()
-        })
-        
-        # Ограничение размера контекста
-        if len(context["messages"]) > 50:
-            context["messages"] = context["messages"][-50:]
-    
-    def get_welcome_message(self) -> str:
-        """Приветственное сообщение для владельца"""
-        bot_name = self.bot_data.get("name", "Zero Bot")
-        return (
-            f"🤖 **{bot_name}**\n\n"
-            f"Привет, хозяин! Я ваш персональный Zero Bot.\n\n"
-            f"**Доступные команды:**\n"
-            f"• /config - Настройка через Langflow\n"
-            f"• /stats - Статистика бота\n"
-            f"• /help - Помощь\n\n"
-            f"Просто напишите мне что-нибудь, и я отвечу! 💬"
-        )
-    
-    def get_guest_message(self) -> str:
-        """Сообщение для гостей"""
-        bot_name = self.bot_data.get("name", "Zero Bot")
-        return (
-            f"👋 Привет! Я {bot_name}.\n\n"
-            f"Я персональный бот, но могу немного поболтать с вами!\n"
-            f"Напишите что-нибудь интересное 😊"
-        )
-    
-    def get_help_message(self) -> str:
-        """Сообщение помощи"""
-        return (
-            "🆘 **Помощь**\n\n"
-            "Я умею:\n"
-            "• Отвечать на ваши сообщения\n"
-            "• Запоминать контекст разговора\n"
-            "• Использовать настроенную личность\n"
-            "• Работать через Langflow (если настроено)\n\n"
-            "Просто пишите мне, и я буду отвечать! 💬"
-        )
-    
-    def get_langflow_webapp_url(self) -> str:
-        """URL для Langflow WebApp"""
-        webapp_base = os.getenv("WEBAPP_URL", "https://your-domain.com")
-        return f"{webapp_base}/langflow?bot_id={BOT_PASSPORT_ID}"
-    
-    async def log_interaction(self, user: User, message: str, response: str):
-        """Логирование взаимодействия"""
-        try:
-            async with httpx.AsyncClient() as client:
-                await client.post(
-                    f"{CORE_API_URL}/api/v1/bot-interactions/",
-                    json={
-                        "bot_passport_id": BOT_PASSPORT_ID,
-                        "user_telegram_id": user.id,
-                        "user_message": message,
-                        "bot_response": response,
-                        "timestamp": datetime.utcnow().isoformat()
-                    }
-                )
-        except Exception as e:
-            logger.error(f"Ошибка логирования: {e}")
-    
-    async def add_experience_points(self, points: int):
-        """Начисление XP боту"""
-        try:
-            async with httpx.AsyncClient() as client:
-                await client.post(
-                    f"{CORE_API_URL}/api/v1/bot-core/bot-passports/{BOT_PASSPORT_ID}/add_experience/",
-                    json={"points": points}
-                )
-        except Exception as e:
-            logger.error(f"Ошибка начисления XP: {e}")
-    
-    async def notify_core_api(self, event_type: str):
-        """Уведомление Core API о событиях"""
-        try:
-            async with httpx.AsyncClient() as client:
-                await client.post(
-                    f"{CORE_API_URL}/api/v1/bot-events/",
-                    json={
-                        "event_type": event_type,
-                        "bot_id": BOT_PASSPORT_ID,
-                        "timestamp": datetime.utcnow().isoformat()
-                    }
-                )
-        except Exception as e:
-            logger.error(f"Ошибка уведомления Core API: {e}")
-    
-    async def listen_for_config_updates(self):
-        """Прослушивание обновлений конфигурации"""
-        if not redis_client:
-            return
-        
-        pubsub = redis_client.pubsub()
-        pubsub.subscribe(BOT_CHANNEL)
-        
-        try:
-            async for message in pubsub.listen():
-                if message['type'] == 'message':
-                    try:
-                        data = json.loads(message['data'])
-                        if data.get('type') == 'config_update':
-                            await self.update_config(data.get('config', {}))
-                    except Exception as e:
-                        logger.error(f"Ошибка обработки обновления конфигурации: {e}")
-        except Exception as e:
-            logger.error(f"Ошибка прослушивания Redis: {e}")
-    
-    async def update_config(self, new_config: Dict):
-        """Обновление конфигурации бота"""
-        try:
-            self.langflow_config.update(new_config.get("langflow_config", {}))
-            logger.info("Конфигурация обновлена")
-        except Exception as e:
-            logger.error(f"Ошибка обновления конфигурации: {e}")
-    
-    async def heartbeat_loop(self):
-        """Отправка heartbeat сигналов"""
-        while self.is_running:
+                logger.error(f"Message processing error: {e}")
+                if self.personality.fallback:
+                    await event.respond(self.personality.fallback)
+
+    async def _process_message(self, text: str, sender: Any) -> str:
+        """Process message through Langflow or fallback to echo."""
+        if LANGFLOW_API_URL:
             try:
-                if redis_client:
-                    redis_client.setex(f"heartbeat:{BOT_PASSPORT_ID}", 60, "alive")
-                await asyncio.sleep(30)
+                return await self._langflow_respond(text, sender)
             except Exception as e:
-                logger.error(f"Ошибка heartbeat: {e}")
-                await asyncio.sleep(30)
-    
-    async def stop(self):
-        """Остановка бота"""
-        self.is_running = False
-        await self.client.disconnect()
-        await self.notify_core_api("bot_stopped")
-        logger.info(f"Бот {BOT_PASSPORT_ID} остановлен")
+                logger.warning(f"Langflow unavailable: {e}")
 
-# Health check endpoint
-@health_app.get("/health")
-async def health_check():
-    return {
-        "status": "healthy",
-        "bot_id": BOT_PASSPORT_ID,
-        "timestamp": datetime.utcnow().isoformat()
-    }
+        return f"Я получил: «{text}»\n\n(AI модель ещё не подключена. Настройте Langflow.)"
 
-@health_app.get("/stats")
-async def get_stats():
-    return {
-        "bot_id": BOT_PASSPORT_ID,
-        "config": BOT_CONFIG,
-        "uptime": "calculated_uptime_here",
-        "message_count": "stored_in_redis_or_db"
-    }
+    async def _langflow_respond(self, text: str, sender: Any) -> str:
+        flow_id = os.getenv("LANGFLOW_FLOW_ID", "")
+        if not flow_id:
+            raise ValueError("LANGFLOW_FLOW_ID not set")
 
-# Main execution
+        async with httpx.AsyncClient(timeout=30.0) as http:
+            resp = await http.post(
+                f"{LANGFLOW_API_URL}/api/v1/run/{flow_id}",
+                json={
+                    "input_value": text,
+                    "tweaks": {
+                        "system_prompt": self.personality.system_prompt,
+                        "bot_name": self.personality.display_name,
+                        "user_name": getattr(sender, "first_name", "User"),
+                    },
+                },
+            )
+            resp.raise_for_status()
+            return resp.json().get("output", self.personality.fallback)
+
+
 async def main():
-    """Основная функция"""
     bot = ZeroBotInstance()
-    
-    try:
-        # Запуск бота
-        await bot.start()
-        
-        # Запуск health check сервера в фоне
-        config = uvicorn.Config(health_app, host="0.0.0.0", port=8080, log_level="info")
-        server = uvicorn.Server(config)
-        asyncio.create_task(server.serve())
-        
-        # Основной цикл бота
-        await bot.client.run_until_disconnected()
-        
-    except KeyboardInterrupt:
-        logger.info("Получен сигнал остановки")
-    except Exception as e:
-        logger.error(f"Критическая ошибка: {e}")
-    finally:
-        await bot.stop()
+    await bot.start()
+
 
 if __name__ == "__main__":
     asyncio.run(main())

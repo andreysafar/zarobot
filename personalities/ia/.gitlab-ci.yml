@@ -1,0 +1,8 @@
+include:
+  - project: 'zero-bot/zero-bot'
+    ref: main
+    file: '/ci/templates/personality.gitlab-ci.yml'
+
+variables:
+  PERSONALITY_NAME: "ia"
+  PERSONALITY_VERSION: "1.0.0"
