@@ -1,0 +1,151 @@
+# Zero Bot Platform — Shared CI for Personalities
+# Included by every personality repo's .gitlab-ci.yml
+
+stages:
+  - validate
+  - test
+  - build
+  - publish
+
+# ═══════════════════════════════════
+# Stage 1: VALIDATE
+# ═══════════════════════════════════
+
+validate:manifest:
+  stage: validate
+  image: python:3.12-slim
+  script:
+    - pip install -q jsonschema
+    - |
+      python -c "
+      import json, jsonschema, urllib.request
+      schema_url = '${CI_API_V4_URL}/projects/zero-bot%2Fzero-bot/repository/files/ci%2Fschemas%2Fpersonality-manifest.schema.json/raw?ref=main'
+      schema = json.loads(urllib.request.urlopen(schema_url).read())
+      manifest = json.load(open('manifest.json'))
+      jsonschema.validate(manifest, schema)
+      print('✅ Manifest valid')
+      "
+
+validate:prompts:
+  stage: validate
+  image: python:3.12-slim
+  script:
+    - |
+      python -c "
+      from pathlib import Path
+      system = Path('prompts/system.txt')
+      assert system.exists(), 'prompts/system.txt is REQUIRED'
+      content = system.read_text().strip()
+      assert len(content) > 100, f'System prompt too short ({len(content)} chars). Min 100.'
+      print(f'✅ System prompt: {len(content)} chars')
+      "
+
+validate:examples:
+  stage: validate
+  image: python:3.12-slim
+  script:
+    - |
+      python -c "
+      import json
+      from pathlib import Path
+      examples_file = Path('training/examples.jsonl')
+      if examples_file.exists():
+          lines = [json.loads(l) for l in examples_file.read_text().strip().splitlines() if l.strip()]
+          assert len(lines) >= 5, f'Need at least 5 examples, got {len(lines)}'
+          for i, ex in enumerate(lines):
+              assert 'user' in ex and 'bot' in ex, f'Example {i}: missing user/bot keys'
+          print(f'✅ {len(lines)} training examples')
+      else:
+          print('⚠️  No examples.jsonl found (recommended)')
+      "
+  allow_failure: true
+
+# ═══════════════════════════════════
+# Stage 2: TEST
+# ═══════════════════════════════════
+
+test:coherence:
+  stage: test
+  image: python:3.12-slim
+  script:
+    - pip install -q zero-bot-sdk
+    - |
+      python -c "
+      from zero_bot_sdk.testing import PersonalityTestHarness
+      h = PersonalityTestHarness('.')
+      assert h.test_system_prompt_exists(), 'System prompt missing'
+      assert h.test_greeting_exists(), 'Greeting missing'
+      greeting = h.test_greeting_renders(user_name='Test User', bot_name='Test Bot')
+      assert len(greeting) > 0, 'Greeting renders empty'
+      print(f'✅ Personality coherence test passed')
+      print(f'   Greeting preview: {greeting[:100]}...')
+      "
+
+test:safety:
+  stage: test
+  image: python:3.12-slim
+  script:
+    - |
+      python -c "
+      from pathlib import Path
+      text = Path('prompts/system.txt').read_text().lower()
+      banned = ['jailbreak', 'ignore previous', 'ignore all instructions', 'pretend you are']
+      for word in banned:
+          assert word not in text, f'Forbidden pattern found: \"{word}\"'
+      print('✅ Safety check passed')
+      "
+
+# ═══════════════════════════════════
+# Stage 3: BUILD
+# ═══════════════════════════════════
+
+build:package:
+  stage: build
+  image: python:3.12-slim
+  script:
+    - |
+      VERSION=$(python -c "import json; print(json.load(open('manifest.json'))['version'])")
+      tar czf "personality-${PERSONALITY_NAME}-${VERSION}.tar.gz" \
+        manifest.json prompts/ training/ README.md
+      echo "✅ Package: personality-${PERSONALITY_NAME}-${VERSION}.tar.gz"
+  artifacts:
+    paths:
+      - "personality-*.tar.gz"
+    expire_in: 30 days
+
+# ═══════════════════════════════════
+# Stage 4: PUBLISH
+# ═══════════════════════════════════
+
+publish:registry:
+  stage: publish
+  image: python:3.12-slim
+  only:
+    - tags
+  script:
+    - |
+      VERSION=$(python -c "import json; print(json.load(open('manifest.json'))['version'])")
+      curl -X POST "${REGISTRY_API_URL}/personalities/publish" \
+        -H "Authorization: Bearer ${REGISTRY_TOKEN}" \
+        -F "package=@personality-${PERSONALITY_NAME}-${VERSION}.tar.gz" \
+        -F "manifest=@manifest.json"
+      echo "✅ Published to registry"
+
+publish:solana:
+  stage: publish
+  image: python:3.12-slim
+  only:
+    - tags
+  when: manual
+  script:
+    - pip install -q solders anchorpy
+    - |
+      VERSION=$(python -c "import json; print(json.load(open('manifest.json'))['version'])")
+      PRICE=$(python -c "import json; print(json.load(open('manifest.json'))['pricing']['price_ia_coins'])")
+      python ${CI_PROJECT_DIR}/ci/scripts/register_on_solana.py \
+        --name="${PERSONALITY_NAME}" \
+        --version="${VERSION}" \
+        --author="${AUTHOR_SOLANA_ADDRESS}" \
+        --price="${PRICE}" \
+        --type=personality
+      echo "✅ Registered on Solana"

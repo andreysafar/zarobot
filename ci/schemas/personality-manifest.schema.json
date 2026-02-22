@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Zero Bot Personality Manifest",
+  "description": "Schema for validating personality manifest.json files",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "name",
+    "display_name",
+    "description",
+    "version",
+    "author",
+    "prompts"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": ["1.0"]
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "minLength": 2,
+      "maxLength": 50
+    },
+    "display_name": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 100
+    },
+    "description": {
+      "type": "string",
+      "minLength": 10,
+      "maxLength": 500
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "author": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" },
+        "github": { "type": "string" },
+        "solana_address": { "type": "string" }
+      }
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "general", "entertainment", "education", "business",
+        "roleplay", "assistant", "creative", "technical", "other"
+      ]
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "maxItems": 10
+    },
+    "language": {
+      "type": "string",
+      "pattern": "^[a-z]{2}$"
+    },
+    "avatar": { "type": "string" },
+    "banner": { "type": "string" },
+    "prompts": {
+      "type": "object",
+      "required": ["system"],
+      "properties": {
+        "system": { "type": "string" },
+        "greeting": { "type": "string" },
+        "fallback": { "type": "string" }
+      }
+    },
+    "training": {
+      "type": "object",
+      "properties": {
+        "examples": { "type": "string" },
+        "style_guide": { "type": "string" }
+      }
+    },
+    "ai_model": {
+      "type": "object",
+      "properties": {
+        "preferred": { "type": "string" },
+        "fallback": { "type": "string" },
+        "temperature": { "type": "number", "minimum": 0, "maximum": 2 },
+        "max_tokens": { "type": "integer", "minimum": 100, "maximum": 16384 }
+      }
+    },
+    "behavior": {
+      "type": "object",
+      "properties": {
+        "response_style": { "type": "string", "enum": ["formal", "casual", "balanced"] },
+        "emoji_usage": { "type": "string", "enum": ["none", "minimal", "moderate", "heavy"] },
+        "formality": { "type": "string", "enum": ["low", "medium", "high"] },
+        "humor_level": { "type": "string", "enum": ["none", "low", "medium", "high"] }
+      }
+    },
+    "pricing": {
+      "type": "object",
+      "required": ["price_ia_coins", "is_free"],
+      "properties": {
+        "price_ia_coins": { "type": "number", "minimum": 0 },
+        "is_free": { "type": "boolean" },
+        "revenue_share": {
+          "type": "object",
+          "properties": {
+            "creator": { "type": "number", "minimum": 0, "maximum": 1 },
+            "platform": { "type": "number", "minimum": 0, "maximum": 1 },
+            "telegram": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        }
+      }
+    },
+    "compatibility": {
+      "type": "object",
+      "properties": {
+        "min_bot_level": { "type": "integer", "minimum": 0 },
+        "conflicts_with": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "solana": {
+      "type": "object",
+      "properties": {
+        "registry_address": { "type": ["string", "null"] },
+        "tx_hash": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

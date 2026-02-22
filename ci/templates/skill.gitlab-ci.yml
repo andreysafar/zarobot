@@ -1,0 +1,129 @@
+# Zero Bot Platform — Shared CI for Skills
+# This template is included by every skill repo's .gitlab-ci.yml
+# DO NOT EDIT in skill repos — managed by zero-bot/zero-bot
+
+stages:
+  - validate
+  - test
+  - build
+  - publish
+
+# ═══════════════════════════════════
+# Stage 1: VALIDATE
+# ═══════════════════════════════════
+
+validate:manifest:
+  stage: validate
+  image: python:3.12-slim
+  script:
+    - pip install -q jsonschema
+    - |
+      python -c "
+      import json, jsonschema, urllib.request
+      schema_url = '${CI_API_V4_URL}/projects/zero-bot%2Fzero-bot/repository/files/ci%2Fschemas%2Fskill-manifest.schema.json/raw?ref=main'
+      schema = json.loads(urllib.request.urlopen(schema_url).read())
+      manifest = json.load(open('manifest.json'))
+      jsonschema.validate(manifest, schema)
+      print('✅ Manifest valid')
+      "
+
+validate:lint:
+  stage: validate
+  image: python:3.12-slim
+  script:
+    - pip install -q ruff
+    - ruff check .
+    - echo "✅ Lint passed"
+
+validate:security:
+  stage: validate
+  image: python:3.12-slim
+  script:
+    - pip install -q bandit
+    - bandit -r . -x ./tests -ll
+    - echo "✅ Security scan passed"
+  allow_failure: true
+
+# ═══════════════════════════════════
+# Stage 2: TEST
+# ═══════════════════════════════════
+
+test:unit:
+  stage: test
+  image: python:3.12-slim
+  script:
+    - pip install -q -r requirements.txt
+    - pip install -q pytest pytest-asyncio pytest-cov zero-bot-sdk
+    - pytest tests/ -v --cov=. --cov-report=term
+  coverage: '/TOTAL.+?(\d+%)/'
+
+test:sandbox:
+  stage: test
+  image: python:3.12-slim
+  script:
+    - pip install -q -r requirements.txt zero-bot-sdk
+    - |
+      python -c "
+      import importlib.util, sys
+      spec = importlib.util.spec_from_file_location('h', 'handler.py')
+      mod = importlib.util.module_from_spec(spec)
+      spec.loader.exec_module(mod)
+      from zero_bot_sdk import BaseSkill
+      found = [v for v in vars(mod).values() if isinstance(v, type) and issubclass(v, BaseSkill) and v is not BaseSkill]
+      assert found, 'No BaseSkill subclass found!'
+      print(f'✅ Skill class found: {found[0].__name__}')
+      "
+
+# ═══════════════════════════════════
+# Stage 3: BUILD
+# ═══════════════════════════════════
+
+build:package:
+  stage: build
+  image: python:3.12-slim
+  script:
+    - |
+      VERSION=$(python -c "import json; print(json.load(open('manifest.json'))['version'])")
+      tar czf "skill-${SKILL_NAME}-${VERSION}.tar.gz" \
+        manifest.json handler.py requirements.txt README.md
+      echo "✅ Package: skill-${SKILL_NAME}-${VERSION}.tar.gz"
+  artifacts:
+    paths:
+      - "skill-*.tar.gz"
+    expire_in: 30 days
+
+# ═══════════════════════════════════
+# Stage 4: PUBLISH (only on tags)
+# ═══════════════════════════════════
+
+publish:registry:
+  stage: publish
+  image: python:3.12-slim
+  only:
+    - tags
+  script:
+    - |
+      VERSION=$(python -c "import json; print(json.load(open('manifest.json'))['version'])")
+      curl -X POST "${REGISTRY_API_URL}/skills/publish" \
+        -H "Authorization: Bearer ${REGISTRY_TOKEN}" \
+        -F "package=@skill-${SKILL_NAME}-${VERSION}.tar.gz" \
+        -F "manifest=@manifest.json"
+      echo "✅ Published to registry"
+
+publish:solana:
+  stage: publish
+  image: python:3.12-slim
+  only:
+    - tags
+  when: manual
+  script:
+    - pip install -q solders anchorpy
+    - |
+      VERSION=$(python -c "import json; print(json.load(open('manifest.json'))['version'])")
+      PRICE=$(python -c "import json; print(json.load(open('manifest.json'))['pricing']['price_ia_coins'])")
+      python ${CI_PROJECT_DIR}/ci/scripts/register_on_solana.py \
+        --name="${SKILL_NAME}" \
+        --version="${VERSION}" \
+        --author="${AUTHOR_SOLANA_ADDRESS}" \
+        --price="${PRICE}"
+      echo "✅ Registered on Solana"

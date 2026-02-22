@@ -1,0 +1,136 @@
+version: '3.8'
+
+# Zero Bot Platform — Production Stack
+# Architecture: 1 bot = 1 container, no Django
+
+services:
+
+  # ═══════════════════════════════════════════
+  # IA-Mother — Master Bot
+  # Marketplace, Exchange, Bot Cloning
+  # ═══════════════════════════════════════════
+  ia-mother:
+    build:
+      context: .
+      dockerfile: services/ia-mother/Dockerfile.new
+    container_name: ia_mother
+    restart: unless-stopped
+    environment:
+      TELEGRAM_API_ID: ${TELEGRAM_API_ID}
+      TELEGRAM_API_HASH: ${TELEGRAM_API_HASH}
+      IA_MOTHER_BOT_TOKEN: ${IA_MOTHER_BOT_TOKEN}
+      REDIS_URL: redis://redis:6379/0
+      LANGFLOW_API_URL: http://langflow:7860
+      SOLANA_RPC_URL: ${SOLANA_RPC_URL:-https://api.devnet.solana.com}
+      REGISTRY_PATH: /data/registry
+    volumes:
+      - registry_data:/data/registry
+      - /var/run/docker.sock:/var/run/docker.sock  # To spawn bot containers
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - zero_bot_net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ═══════════════════════════════════════════
+  # Redis — State, Pub/Sub, Registry Cache
+  # ═══════════════════════════════════════════
+  redis:
+    image: redis:7-alpine
+    container_name: zero_bot_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - zero_bot_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ═══════════════════════════════════════════
+  # Langflow — Admin UI + Flow Builder
+  # Visual builder for bot flows, replaces Django admin
+  # ═══════════════════════════════════════════
+  langflow:
+    image: langflowai/langflow:latest
+    container_name: zero_bot_langflow
+    restart: unless-stopped
+    ports:
+      - "7860:7860"
+    environment:
+      LANGFLOW_DATABASE_URL: sqlite:///./data/langflow.db
+      LANGFLOW_AUTO_LOGIN: "true"
+      LANGFLOW_SUPERUSER: admin
+      LANGFLOW_SUPERUSER_PASSWORD: ${LANGFLOW_PASSWORD:-admin123}
+    volumes:
+      - langflow_data:/app/data
+    networks:
+      - zero_bot_net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7860/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ═══════════════════════════════════════════
+  # GitLab Runner — CI/CD Pipeline
+  # Builds/tests/deploys skills and personalities
+  # ═══════════════════════════════════════════
+  gitlab-runner:
+    image: gitlab/gitlab-runner:latest
+    container_name: zero_bot_runner
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - runner_config:/etc/gitlab-runner
+      - runner_cache:/cache
+    networks:
+      - zero_bot_net
+
+  # ═══════════════════════════════════════════
+  # Bot instances are created DYNAMICALLY
+  # by IA-Mother via Docker API
+  # Template shown below (not auto-started)
+  # ═══════════════════════════════════════════
+
+  # zero-bot-template:
+  #   image: zero-bot/bot-instance:latest
+  #   environment:
+  #     TELEGRAM_API_ID: ${TELEGRAM_API_ID}
+  #     TELEGRAM_API_HASH: ${TELEGRAM_API_HASH}
+  #     TELEGRAM_BOT_TOKEN: <dynamic>
+  #     BOT_ID: <dynamic>
+  #     OWNER_TELEGRAM_ID: <dynamic>
+  #     REDIS_URL: redis://redis:6379/0
+  #     LANGFLOW_API_URL: http://langflow:7860
+  #   volumes:
+  #     - bot_<id>_data:/data
+  #   networks:
+  #     - zero_bot_net
+
+volumes:
+  redis_data:
+    driver: local
+  langflow_data:
+    driver: local
+  registry_data:
+    driver: local
+  runner_config:
+    driver: local
+  runner_cache:
+    driver: local
+
+networks:
+  zero_bot_net:
+    driver: bridge
+    name: zero_bot_net

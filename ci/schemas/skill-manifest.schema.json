@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Zero Bot Skill Manifest",
+  "description": "Schema for validating skill manifest.json files",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "name",
+    "display_name",
+    "description",
+    "version",
+    "author",
+    "entry_point",
+    "handler_class"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": ["1.0"]
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "minLength": 2,
+      "maxLength": 50,
+      "description": "Unique skill identifier (lowercase, hyphens)"
+    },
+    "display_name": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 100
+    },
+    "description": {
+      "type": "string",
+      "minLength": 10,
+      "maxLength": 500
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "author": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" },
+        "github": { "type": "string" },
+        "solana_address": { "type": "string" }
+      }
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "utilities", "entertainment", "productivity", "education",
+        "finance", "social", "media", "developer", "ai", "gaming", "other"
+      ]
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "maxItems": 10
+    },
+    "icon": { "type": "string" },
+    "entry_point": { "type": "string", "pattern": "\\.py$" },
+    "handler_class": { "type": "string", "minLength": 1 },
+    "commands": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["trigger", "description"],
+        "properties": {
+          "trigger": { "type": "string", "pattern": "^/" },
+          "description": { "type": "string" },
+          "usage": { "type": "string" }
+        }
+      }
+    },
+    "message_patterns": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "config_schema": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "type": { "type": "string", "enum": ["string", "integer", "boolean", "number"] },
+          "required": { "type": "boolean" },
+          "default": {},
+          "description": { "type": "string" },
+          "enum": { "type": "array" },
+          "min": { "type": "number" },
+          "max": { "type": "number" }
+        }
+      }
+    },
+    "requirements": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "pricing": {
+      "type": "object",
+      "required": ["price_ia_coins", "is_free"],
+      "properties": {
+        "price_ia_coins": { "type": "number", "minimum": 0 },
+        "is_free": { "type": "boolean" },
+        "revenue_share": {
+          "type": "object",
+          "properties": {
+            "creator": { "type": "number", "minimum": 0, "maximum": 1 },
+            "platform": { "type": "number", "minimum": 0, "maximum": 1 },
+            "telegram": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        }
+      }
+    },
+    "priority": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000,
+      "default": 50
+    },
+    "compatibility": {
+      "type": "object",
+      "properties": {
+        "min_bot_level": { "type": "integer", "minimum": 0 },
+        "max_skills_conflict": { "type": "array", "items": { "type": "string" } },
+        "required_skills": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "solana": {
+      "type": "object",
+      "properties": {
+        "registry_address": { "type": ["string", "null"] },
+        "tx_hash": { "type": ["string", "null"] }
+      }
+    }
+  }
+}
