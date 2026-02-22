@@ -1,0 +1,21 @@
+# Web framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+
+# HTTP client
+httpx==0.25.2
+
+# Cache and database
+redis==5.0.1
+
+# Blockchain
+solders==0.20.1
+anchorpy==0.19.1
+
+# Task queue
+celery==5.3.4
+
+# Utilities
+python-dotenv==1.0.0
+loguru==0.7.2
+pydantic==2.5.0

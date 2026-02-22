@@ -16,8 +16,10 @@ urlpatterns = [
     # Health endpoint
     path('health/', health_check, name='health_check'),
     
-    # Bot Core API
-    path('', include('apps.bot_core.urls')),
+    # API v1 endpoints
+    path('api/v1/', include('apps.bot_core.urls')),
+    path('api/v1/', include('apps.personalities.urls')),
+    path('api/v1/skills/', include('apps.skills.urls')),
     
     # Admin interface
     path('admin/', admin.site.urls),

@@ -4,7 +4,7 @@ DRF serializers for Bot Core models.
 
 from rest_framework import serializers
 from django.contrib.auth.models import User
-from .models import BotPassport, BotState, SkillInstallation, PersonalityInstance
+from .models import BotPassport, BotState, PersonalityInstance
 
 
 class BotPassportSerializer(serializers.ModelSerializer):
@@ -28,7 +28,7 @@ class BotPassportSerializer(serializers.ModelSerializer):
             'owner_username',
             'solana_nft_address',
             'ton_nft_address',
-            # 'personality',  # To be added when personalities app is created
+            'personality',
             'experience_points',
             'training_level',
             'training_progress',
@@ -112,38 +112,7 @@ class BotStateSerializer(serializers.ModelSerializer):
         return value
 
 
-class SkillInstallationSerializer(serializers.ModelSerializer):
-    """Serializer for Skill Installation model."""
-    
-    # Bot passport information
-    passport_name = serializers.CharField(source='passport.name', read_only=True)
-    passport_id = serializers.UUIDField(source='passport.bot_id', read_only=True)
-    
-    # Skill information (to be added when skills app is created)
-    # skill_name = serializers.CharField(source='skill.name', read_only=True)
-    
-    class Meta:
-        model = SkillInstallation
-        fields = [
-            'id',
-            'passport',
-            'passport_name',
-            'passport_id',
-            # 'skill',
-            # 'skill_name',
-            'installed_at',
-            'config',
-            'is_active',
-        ]
-        read_only_fields = [
-            'installed_at',
-        ]
-    
-    def validate_config(self, value):
-        """Validate skill configuration."""
-        if not isinstance(value, dict):
-            raise serializers.ValidationError("Config must be a valid JSON object")
-        return value
+# SkillInstallationSerializer moved to apps.skills.serializers
 
 
 class PersonalityInstanceSerializer(serializers.ModelSerializer):
@@ -153,8 +122,8 @@ class PersonalityInstanceSerializer(serializers.ModelSerializer):
     passport_name = serializers.CharField(source='passport.name', read_only=True)
     passport_id = serializers.UUIDField(source='passport.bot_id', read_only=True)
     
-    # Personality information (to be added when personalities app is created)
-    # personality_name = serializers.CharField(source='personality.name', read_only=True)
+    # Personality information
+    personality_name = serializers.CharField(source='personality.name', read_only=True)
     
     class Meta:
         model = PersonalityInstance
@@ -163,8 +132,8 @@ class PersonalityInstanceSerializer(serializers.ModelSerializer):
             'passport',
             'passport_name',
             'passport_id',
-            # 'personality',
-            # 'personality_name',
+            'personality',
+            'personality_name',
             'custom_prompt_override',
             'activated_at',
             'is_active',
@@ -188,7 +157,7 @@ class BotPassportCreateSerializer(serializers.ModelSerializer):
         fields = [
             'name',
             'description',
-            # 'personality',  # To be added when personalities app is created
+            'personality',
         ]
     
     def create(self, validated_data):

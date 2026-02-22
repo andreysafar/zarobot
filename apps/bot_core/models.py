@@ -64,15 +64,15 @@ class BotPassport(models.Model):
         help_text="Bot description"
     )
     
-    # Personality and skills (foreign keys to be added later)
-    # personality = models.ForeignKey(
-    #     'personalities.Personality',
-    #     on_delete=models.SET_NULL,
-    #     null=True,
-    #     blank=True,
-    #     related_name='bot_instances',
-    #     help_text="Active personality"
-    # )
+    # Personality and skills
+    personality = models.ForeignKey(
+        'personalities.Personality',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='bot_instances',
+        help_text="Active personality"
+    )
     
     # Tamagotchi system
     experience_points = models.PositiveIntegerField(
@@ -263,44 +263,7 @@ class BotState(models.Model):
 
 
 # Placeholder models for relationships (will be properly implemented when other apps are created)
-
-class SkillInstallation(models.Model):
-    """
-    Through model for bot-skill relationships.
-    Tracks which skills are installed on which bots.
-    """
-    
-    passport = models.ForeignKey(
-        BotPassport,
-        on_delete=models.CASCADE,
-        related_name='skill_installations'
-    )
-    
-    # skill = models.ForeignKey('skills.Skill', on_delete=models.CASCADE)  # To be added later
-    
-    installed_at = models.DateTimeField(auto_now_add=True)
-    
-    config = models.JSONField(
-        default=dict,
-        help_text="Skill-specific configuration"
-    )
-    
-    is_active = models.BooleanField(
-        default=True,
-        help_text="Whether skill is currently active"
-    )
-    
-    class Meta:
-        db_table = 'skill_installations'
-        # unique_together = ['passport', 'skill']  # To be added later
-        indexes = [
-            models.Index(fields=['passport']),
-            models.Index(fields=['installed_at']),
-            models.Index(fields=['is_active']),
-        ]
-    
-    def __str__(self):
-        return f"Skill installation for {self.passport.name}"
+# SkillInstallation moved to apps.skills.models
 
 
 class PersonalityInstance(models.Model):
@@ -315,7 +278,13 @@ class PersonalityInstance(models.Model):
         related_name='personality_instances'
     )
     
-    # personality = models.ForeignKey('personalities.Personality', on_delete=models.CASCADE)  # To be added later
+    personality = models.ForeignKey(
+        'personalities.Personality', 
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        help_text="Personality applied to this bot"
+    )
     
     custom_prompt_override = models.TextField(
         blank=True,
@@ -331,11 +300,17 @@ class PersonalityInstance(models.Model):
     
     class Meta:
         db_table = 'personality_instances'
+        unique_together = ['passport', 'personality']
         indexes = [
             models.Index(fields=['passport']),
+            models.Index(fields=['personality']),
             models.Index(fields=['activated_at']),
             models.Index(fields=['is_active']),
         ]
     
     def __str__(self):
-        return f"Personality instance for {self.passport.name}"
+        return f"{self.personality.name} on {self.passport.name}"
+    
+    def get_effective_prompt(self):
+        """Get the effective prompt for this instance."""
+        return self.personality.get_effective_prompt(self)

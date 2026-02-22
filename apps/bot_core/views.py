@@ -8,13 +8,12 @@ from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
 from django.db.models import Q
 
-from .models import BotPassport, BotState, SkillInstallation, PersonalityInstance
+from .models import BotPassport, BotState, PersonalityInstance
 from .serializers import (
     BotPassportSerializer,
     BotPassportCreateSerializer,
     BotPassportSummarySerializer,
     BotStateSerializer,
-    SkillInstallationSerializer,
     PersonalityInstanceSerializer,
 )
 
@@ -24,7 +23,7 @@ class BotPassportViewSet(viewsets.ModelViewSet):
     ViewSet for Bot Passport CRUD operations.
     """
     
-    queryset = BotPassport.objects.select_related('owner').all()  # 'personality' to be added later
+    queryset = BotPassport.objects.select_related('owner', 'personality').all()
     permission_classes = [permissions.IsAuthenticated]
     
     def get_serializer_class(self):
@@ -142,7 +141,7 @@ class BotStateViewSet(viewsets.ModelViewSet):
     ViewSet for Bot State operations.
     """
     
-    queryset = BotState.objects.select_related('passport').all()  # 'active_prompt' to be added later
+    queryset = BotState.objects.select_related('passport').all()
     serializer_class = BotStateSerializer
     permission_classes = [permissions.IsAuthenticated]
     
@@ -201,32 +200,7 @@ class BotStateViewSet(viewsets.ModelViewSet):
         })
 
 
-class SkillInstallationViewSet(viewsets.ModelViewSet):
-    """
-    ViewSet for Skill Installation operations.
-    """
-    
-    queryset = SkillInstallation.objects.select_related('passport').all()
-    serializer_class = SkillInstallationSerializer
-    permission_classes = [permissions.IsAuthenticated]
-    
-    def get_queryset(self):
-        """Filter queryset based on user permissions."""
-        user = self.request.user
-        
-        # Filter by bot passport parameter if provided
-        passport_id = self.request.query_params.get('passport_id')
-        queryset = self.queryset
-        
-        if passport_id:
-            queryset = queryset.filter(passport__bot_id=passport_id)
-        
-        # Superusers can see all installations
-        if user.is_superuser:
-            return queryset
-        
-        # Regular users can only see their own bots' installations
-        return queryset.filter(passport__owner=user)
+# SkillInstallationViewSet moved to apps.skills.views
 
 
 class PersonalityInstanceViewSet(viewsets.ModelViewSet):

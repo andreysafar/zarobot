@@ -7,7 +7,6 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     BotPassportViewSet,
     BotStateViewSet,
-    SkillInstallationViewSet,
     PersonalityInstanceViewSet,
 )
 
@@ -15,7 +14,7 @@ from .views import (
 router = DefaultRouter()
 router.register(r'passports', BotPassportViewSet, basename='botpassport')
 router.register(r'states', BotStateViewSet, basename='botstate')
-router.register(r'skill-installations', SkillInstallationViewSet, basename='skillinstallation')
+# skill-installations moved to apps.skills.urls
 router.register(r'personality-instances', PersonalityInstanceViewSet, basename='personalityinstance')
 
 app_name = 'bot_core'

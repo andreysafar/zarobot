@@ -4,7 +4,7 @@ Django admin configuration for Bot Core models.
 
 from django.contrib import admin
 from django.utils.html import format_html
-from .models import BotPassport, BotState, SkillInstallation, PersonalityInstance
+from .models import BotPassport, BotState, PersonalityInstance
 
 
 @admin.register(BotPassport)
@@ -25,7 +25,7 @@ class BotPassportAdmin(admin.ModelAdmin):
         'is_active',
         'training_level',
         'created_at',
-        # 'personality',  # To be added when personalities app is created
+        'personality',
     ]
     
     search_fields = [
@@ -60,9 +60,9 @@ class BotPassportAdmin(admin.ModelAdmin):
                 'marketplace_value_multiplier'
             ]
         }),
-        # ('Personality & Skills', {
-        #     'fields': ['personality'],
-        # }),
+        ('Personality & Skills', {
+            'fields': ['personality'],
+        }),
         ('State & Metadata', {
             'fields': ['state'],
             'classes': ['collapse']
@@ -159,37 +159,7 @@ class BotStateAdmin(admin.ModelAdmin):
     passport_name.admin_order_field = 'passport__name'
 
 
-@admin.register(SkillInstallation)
-class SkillInstallationAdmin(admin.ModelAdmin):
-    """Admin interface for Skill Installations."""
-    
-    list_display = [
-        'passport_name',
-        # 'skill_name',  # To be added when skills app is created
-        'installed_at',
-        'is_active'
-    ]
-    
-    list_filter = [
-        'is_active',
-        'installed_at',
-    ]
-    
-    search_fields = [
-        'passport__name',
-        'passport__bot_id',
-        # 'skill__name',  # To be added later
-    ]
-    
-    readonly_fields = [
-        'installed_at',
-    ]
-    
-    def passport_name(self, obj):
-        """Display passport name."""
-        return obj.passport.name
-    passport_name.short_description = "Bot Name"
-    passport_name.admin_order_field = 'passport__name'
+# SkillInstallation admin moved to apps.skills.admin
 
 
 @admin.register(PersonalityInstance)
@@ -198,7 +168,7 @@ class PersonalityInstanceAdmin(admin.ModelAdmin):
     
     list_display = [
         'passport_name',
-        # 'personality_name',  # To be added when personalities app is created
+        'personality_name',
         'has_custom_prompt',
         'activated_at',
         'is_active'
@@ -212,7 +182,7 @@ class PersonalityInstanceAdmin(admin.ModelAdmin):
     search_fields = [
         'passport__name',
         'passport__bot_id',
-        # 'personality__name',  # To be added later
+        'personality__name',
     ]
     
     readonly_fields = [
@@ -224,6 +194,12 @@ class PersonalityInstanceAdmin(admin.ModelAdmin):
         return obj.passport.name
     passport_name.short_description = "Bot Name"
     passport_name.admin_order_field = 'passport__name'
+    
+    def personality_name(self, obj):
+        """Display personality name."""
+        return obj.personality.name if obj.personality else "-"
+    personality_name.short_description = "Personality"
+    personality_name.admin_order_field = 'personality__name'
     
     def has_custom_prompt(self, obj):
         """Check if instance has custom prompt override."""
