@@ -66,9 +66,8 @@ monitoring/
 .taskmaster/
 tasks/
 
-# Cursor (keep rules, ignore debug)
-.cursor/debug.log
-.cursor/projects/
+# Cursor (local IDE state, do not commit)
+.cursor/
 
 # Roo
 .roo/
