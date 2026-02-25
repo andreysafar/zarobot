@@ -14,11 +14,15 @@ import httpx
 from loguru import logger
 from telethon import TelegramClient, events
 
+try:
+    from . import handlers as h
+except ImportError:
+    import handlers as h
+
 TELEGRAM_API_ID = int(os.getenv("TELEGRAM_API_ID", "0"))
 TELEGRAM_API_HASH = os.getenv("TELEGRAM_API_HASH", "")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 BOT_ID = os.getenv("BOT_ID", "unknown")
-OWNER_TELEGRAM_ID = int(os.getenv("OWNER_TELEGRAM_ID", "0"))
 REDIS_URL = os.getenv("REDIS_URL", "")
 LANGFLOW_API_URL = os.getenv("LANGFLOW_API_URL", "")
 
@@ -45,10 +49,8 @@ class PersonalityLoader:
         if not manifest_path.exists():
             logger.warning("No personality manifest found, using defaults")
             return
-
         self.manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         prompts_cfg = self.manifest.get("prompts", {})
-
         for attr, key in [
             ("system_prompt", "system"),
             ("system_prompt_free", "system_free"),
@@ -101,12 +103,17 @@ class BotState:
 
     def save(self):
         self.file.parent.mkdir(parents=True, exist_ok=True)
-        self.file.write_text(json.dumps({
-            "xp": self.xp,
-            "level": self.level,
-            "messages_total": self.messages_total,
-            "created_at": self.created_at,
-        }, indent=2))
+        self.file.write_text(
+            json.dumps(
+                {
+                    "xp": self.xp,
+                    "level": self.level,
+                    "messages_total": self.messages_total,
+                    "created_at": self.created_at,
+                },
+                indent=2,
+            )
+        )
 
     def add_xp(self, points: int = 1):
         self.xp += points
@@ -114,7 +121,7 @@ class BotState:
         new_level = self.xp // 100
         if new_level > self.level:
             self.level = new_level
-            logger.info(f"Level up! Now level {self.level}")
+            logger.info("Level up! Now level %s", self.level)
         self.save()
 
 
@@ -125,83 +132,51 @@ class ZeroBotInstance:
         self.personality = PersonalityLoader(PERSONALITY_DIR)
         self.state = BotState(STATE_FILE)
         self.conversations: dict[int, list[dict]] = {}
-
         self.client = TelegramClient(
             f"/data/state/bot_{BOT_ID}",
             TELEGRAM_API_ID,
             TELEGRAM_API_HASH,
         )
-
-        logger.info(f"Bot {BOT_ID} initialized | personality={self.personality.display_name}")
+        logger.info("Bot %s initialized | personality=%s", BOT_ID, self.personality.display_name)
 
     async def start(self):
         await self.client.start(bot_token=TELEGRAM_BOT_TOKEN)
         self._register_handlers()
-        logger.info(f"Bot {BOT_ID} started | level={self.state.level} xp={self.state.xp}")
+        logger.info("Bot %s started | level=%s xp=%s", BOT_ID, self.state.level, self.state.xp)
         await self.client.run_until_disconnected()
 
     def _register_handlers(self):
+        bot = self
 
-        @self.client.on(events.NewMessage(pattern="/start"))
         async def on_start(event):
-            sender = await event.get_sender()
-            name = getattr(sender, "first_name", None) or getattr(sender, "username", "User")
-            greeting = self.personality.get_greeting(
-                user_name=name,
-                bot_name=self.personality.display_name,
-            )
-            await event.respond(greeting)
+            await h.handle_start(event, bot)
 
-        @self.client.on(events.NewMessage(pattern="/stats"))
         async def on_stats(event):
-            await event.respond(
-                f"📊 **{self.personality.display_name}**\n\n"
-                f"Level: {self.state.level}\n"
-                f"XP: {self.state.xp}\n"
-                f"Messages: {self.state.messages_total}\n"
-                f"Created: {self.state.created_at[:10]}"
-            )
+            await h.handle_stats(event, bot)
 
-        @self.client.on(events.NewMessage(pattern="/help"))
         async def on_help(event):
-            await event.respond(
-                f"🤖 **{self.personality.display_name}**\n\n"
-                "Команды:\n"
-                "/start — Приветствие\n"
-                "/stats — Статистика бота\n"
-                "/help — Помощь\n\n"
-                "Просто пишите — я отвечу!"
-            )
+            await h.handle_help(event, bot)
 
-        @self.client.on(events.NewMessage(func=lambda e: e.text and not e.text.startswith("/")))
         async def on_message(event):
-            sender = await event.get_sender()
-            text = event.text
+            await h.handle_message(event, bot)
 
-            try:
-                response = await self._process_message(text, sender)
-                await event.respond(response)
-                self.state.add_xp(1)
-            except Exception as e:
-                logger.error(f"Message processing error: {e}")
-                if self.personality.fallback:
-                    await event.respond(self.personality.fallback)
+        self.client.on(events.NewMessage(pattern="/start"))(on_start)
+        self.client.on(events.NewMessage(pattern="/stats"))(on_stats)
+        self.client.on(events.NewMessage(pattern="/help"))(on_help)
+        self.client.on(events.NewMessage(func=lambda e: e.text and not e.text.startswith("/")))(on_message)
 
     async def _process_message(self, text: str, sender: Any) -> str:
-        """Process message through Langflow or fallback to echo."""
         if LANGFLOW_API_URL:
             try:
                 return await self._langflow_respond(text, sender)
             except Exception as e:
-                logger.warning(f"Langflow unavailable: {e}")
-
+                logger.warning("Langflow unavailable: %s", e)
         return f"Я получил: «{text}»\n\n(AI модель ещё не подключена. Настройте Langflow.)"
 
     async def _langflow_respond(self, text: str, sender: Any) -> str:
         flow_id = os.getenv("LANGFLOW_FLOW_ID", "")
         if not flow_id:
             raise ValueError("LANGFLOW_FLOW_ID not set")
-
         async with httpx.AsyncClient(timeout=30.0) as http:
             resp = await http.post(
                 f"{LANGFLOW_API_URL}/api/v1/run/{flow_id}",
