@@ -110,20 +110,17 @@ publish:registry:
         -F "manifest=@manifest.json"
       echo "✅ Published to registry"
 
-publish:solana:
+publish:ton:
   stage: publish
   image: python:3.12-slim
   only:
     - tags
   when: manual
   script:
-    - pip install -q solders anchorpy
+    - pip install -q requests
     - |
-      VERSION=$(python -c "import json; print(json.load(open('manifest.json'))['version'])")
-      PRICE=$(python -c "import json; print(json.load(open('manifest.json'))['pricing']['price_ia_coins'])")
-      python ${CI_PROJECT_DIR}/ci/scripts/register_on_solana.py \
-        --name="${SKILL_NAME}" \
-        --version="${VERSION}" \
-        --author="${AUTHOR_SOLANA_ADDRESS}" \
-        --price="${PRICE}"
-      echo "✅ Registered on Solana"
+      python ci/scripts/register_on_ton.py \
+        --registry-url="${REGISTRY_API_URL}" \
+        --token="${REGISTRY_TOKEN}" \
+        --manifest=manifest.json
+      echo "✅ Registered on TON via Core API"

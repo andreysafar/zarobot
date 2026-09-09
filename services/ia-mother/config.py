@@ -31,13 +31,40 @@ def _dbg(loc: str, msg: str, data: dict | None = None, hyp: str | None = None) -
 
 
 # Environment
-TELEGRAM_BOT_TOKEN = os.getenv("IA_MOTHER_BOT_TOKEN")
-CORE_API_URL = os.getenv("CORE_API_URL")
-REDIS_URL = os.getenv("REDIS_URL")
-TON_API_KEY = os.getenv("TON_API_KEY")
+IA_MOTHER_BOT_TOKEN = os.getenv("IA_MOTHER_BOT_TOKEN")
+CORE_API_URL = os.getenv("CORE_API_URL", "http://core-api:8000")
+REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
+TON_API_KEY = os.getenv("TON_API_KEY", "")
+TON_NETWORK = os.getenv("TON_NETWORK", "mainnet")
+IAM_COIN_MASTER_ADDRESS = os.getenv("IAM_COIN_MASTER_ADDRESS", "")
+NFT_COLLECTION_ADDRESS = os.getenv("NFT_COLLECTION_ADDRESS", "")
+PLATFORM_TON_WALLET = os.getenv("PLATFORM_TON_WALLET", "")
 WEBAPP_URL = os.getenv("WEBAPP_URL", "https://your-domain.com")
 TELEGRAM_API_ID = int(os.getenv("TELEGRAM_API_ID", "0"))
 TELEGRAM_API_HASH = os.getenv("TELEGRAM_API_HASH", "")
+
+# Кто может создавать ботов. Создание бота запускает контейнер на хосте, так
+# что открытый доступ — это не «фича маркетплейса», а способ отдать чужому
+# человеку ресурсы машины. Поэтому по умолчанию закрыто.
+OWNER_ID = int(os.getenv("OWNER_ID", "0") or 0)
+ALLOWED_CREATOR_IDS = {
+    int(i)
+    for i in os.getenv("ALLOWED_CREATOR_IDS", "").replace(" ", "").split(",")
+    if i
+}
+# Явное согласие оператора на публичное создание ботов.
+ALLOW_PUBLIC_BOT_CREATION = os.getenv(
+    "ALLOW_PUBLIC_BOT_CREATION", "false"
+).lower() in ("1", "true", "yes")
+
+
+def can_create_bots(user_id: int) -> bool:
+    """Разрешено ли пользователю поднимать контейнеры на этом хосте."""
+    if ALLOW_PUBLIC_BOT_CREATION:
+        return True
+    if not user_id:
+        return False
+    return user_id == OWNER_ID or user_id in ALLOWED_CREATOR_IDS
 
 # Redis
 redis_client = None

@@ -37,11 +37,13 @@ async def handle_marketplace_bots(event, bot):
     bot_list = "🤖 **Доступные боты:**\n\n"
     buttons = []
     for b in bots[:10]:
+        # Рейтингов у ботов пока нет ни в модели, ни в API — не показываем то,
+        # чего не существует. .get() держит экран живым, если поле пропало.
         bot_list += (
             f"**{b['name']}**\n"
-            f"👤 {b['creator']}\n"
-            f"💰 {b['price']} IA-Coins\n"
-            f"⭐ {b['rating']}/5 ({b['reviews']} отзывов)\n\n"
+            f"👤 {b.get('creator', '—')}\n"
+            f"💰 {b.get('price', 0)} IA-Coins\n"
+            f"📊 Уровень {b.get('level', 0)}\n\n"
         )
         buttons.append([Button.inline(f"🔍 {b['name']}", f"view_bot_{b['id']}".encode())])
     buttons.extend([
@@ -263,4 +265,155 @@ async def handle_process_install(event, bot):
             "Не удалось установить навык.\n"
             "Попробуйте позже или обратитесь в поддержку.",
             buttons=[[Button.inline("⬅️ Назад", f"view_skill_{skill_id}".encode())]],
+        )
+
+
+async def handle_marketplace_personalities(event, bot):
+    """Personalities catalog (placeholder)."""
+    await event.edit(
+        "👑 **Личности**\n\n"
+        "Скоро здесь появятся уникальные личности для ваших ботов!\n\n"
+        "Доступные личности:\n"
+        "• 🤖 **Ия** — дружелюбный AI-ассистент (бесплатно)\n",
+        buttons=[
+            [Button.inline("⬅️ Назад", b"marketplace")],
+        ],
+    )
+
+
+async def handle_marketplace_trending(event, bot):
+    """Trending items."""
+    await event.edit(
+        "🔥 **Тренды Zero Bot**\n\n"
+        "📊 **Популярные навыки:**\n"
+        "1. Умный переводчик — 342 установок\n"
+        "2. Генерация кода Python — 156 установок\n"
+        "3. Анализ настроения — 89 установок\n\n"
+        "🤖 **Популярные боты:**\n"
+        "Скоро здесь появятся боты!\n",
+        buttons=[
+            [Button.inline("🧠 Навыки", b"marketplace_skills")],
+            [Button.inline("🤖 Боты", b"marketplace_bots")],
+            [Button.inline("⬅️ Назад", b"marketplace")],
+        ],
+    )
+
+
+async def handle_marketplace_search(event, bot):
+    """Search in marketplace."""
+    await event.edit(
+        "🔍 **Поиск**\n\n"
+        "Введите запрос для поиска навыков, ботов или личностей.\n\n"
+        "Примеры:\n"
+        "• `переводчик` — найти навыки перевода\n"
+        "• `python` — найти навыки для разработки\n"
+        "• `анализ` — найти аналитические навыки",
+        buttons=[[Button.inline("⬅️ Назад", b"marketplace")]],
+    )
+
+
+async def handle_view_bot(event, bot):
+    """Single bot details."""
+    bot_id = event.pattern_match.group(1).decode()
+    bot_data = await bot.api.get_bot_details(bot_id)
+    if not bot_data:
+        await event.answer("Бот не найден", alert=True)
+        return
+
+    text = (
+        f"🤖 **{bot_data['name']}**\n\n"
+        f"👤 **Владелец:** {bot_data.get('owner_telegram', 'Unknown')}\n"
+        f"📊 **Уровень:** {bot_data.get('level', 0)}\n"
+        f"🧬 **Личность:** {bot_data.get('personality', 'default')}\n"
+    )
+    if bot_data.get("nft_address"):
+        text += f"🎫 **NFT:** `{bot_data['nft_address'][:16]}...`\n"
+    if bot_data.get("container_id"):
+        text += f"🐳 **Контейнер:** `{bot_data['container_id'][:12]}...`\n"
+
+    buttons = [
+        [Button.inline("💰 Купить бота", f"buy_bot_{bot_id}".encode())],
+        [Button.inline("⬅️ Назад", b"marketplace_bots")],
+    ]
+    await event.edit(text, buttons=buttons)
+
+
+async def handle_buy_bot(event, bot):
+    """Buy a bot from marketplace."""
+    bot_id = event.pattern_match.group(1).decode()
+    user = await event.get_sender()
+
+    await event.edit(
+        f"💰 **Покупка бота**\n\n"
+        f"Подтвердите покупку.\n"
+        f"Стоимость: 50 IA-Coins\n"
+        f"Вы получите полную копию бота с его личностью и навыками.\n",
+        buttons=[
+            [Button.inline("✅ Купить", f"confirm_buy_bot_{bot_id}".encode())],
+            [Button.inline("❌ Отмена", f"view_bot_{bot_id}".encode())],
+        ],
+    )
+
+
+async def handle_confirm_buy_bot(event, bot):
+    """Confirm bot purchase."""
+    from loguru import logger
+    bot_id = event.pattern_match.group(1).decode()
+    user = await event.get_sender()
+
+    try:
+        # Call Core API to buy bot
+        result = await bot.api._request(
+            "POST",
+            f"/api/v1/marketplace/bots/{bot_id}/buy/",
+            json={"buyer_id": user.id},
+        )
+        if result.get("success"):
+            # Владение сменилось в базе, но контейнер всё ещё крутится со
+            # старым OWNER_ID — без пересоздания прежний владелец остался бы
+            # админом проданного бота.
+            handover = "\n"
+            try:
+                from docker_manager import BotContainerManager
+
+                owner_telegram = f"@{user.username}" if user.username else str(user.id)
+                moved = await BotContainerManager().reassign_owner(
+                    bot_id, user.id, owner_telegram
+                )
+                if not moved.get("success"):
+                    logger.error(
+                        "Не удалось передать контейнер бота {}: {}",
+                        bot_id, moved.get("error"),
+                    )
+                    handover = (
+                        "\n⚠️ Права в базе переданы, но контейнер не перезапущен.\n"
+                        "Обратитесь к администратору.\n"
+                    )
+            except Exception as e:
+                logger.error("Ошибка передачи контейнера {}: {}", bot_id, e)
+                handover = (
+                    "\n⚠️ Права в базе переданы, но контейнер не перезапущен.\n"
+                    "Обратитесь к администратору.\n"
+                )
+
+            await event.edit(
+                f"🎉 **Бот куплен!**\n\n"
+                f"Вы стали владельцем нового бота.\n"
+                f"{handover}"
+                f"Перейдите в 'Мои боты' для управления.",
+                buttons=[
+                    [Button.inline("🤖 Мои боты", b"my_bots")],
+                    [Button.inline("🏠 Главная", b"back_main")],
+                ],
+            )
+        else:
+            await event.edit(
+                f"❌ Ошибка: {result.get('error', 'Unknown error')}",
+                buttons=[[Button.inline("⬅️ Назад", b"marketplace_bots")]],
+            )
+    except Exception as e:
+        logger.error(f"Bot purchase failed: {e}")
+        await event.edit(
+            "❌ Ошибка при покупке. Попробуйте позже.",
+            buttons=[[Button.inline("⬅️ Назад", b"marketplace_bots")]],
         )

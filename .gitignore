@@ -55,6 +55,9 @@ langflow.db
 
 # Telethon sessions
 *.session
+# Файл сессии Дервалера (секрет, имя без расширения)
+data/dervaler/
+/data/dervaler/
 
 # Build artifacts
 staticfiles/

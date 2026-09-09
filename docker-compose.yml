@@ -1,9 +1,42 @@
 version: '3.8'
 
 # Zero Bot Platform — Production Stack
-# Architecture: 1 bot = 1 container, no Django
+# Architecture: 1 bot = 1 container, TON blockchain
 
 services:
+
+  # ═══════════════════════════════════════════
+  # Core API — Backend
+  # Marketplace, Skills, Bots, Exchange, Balances
+  # ═══════════════════════════════════════════
+  core-api:
+    build:
+      context: .
+      dockerfile: services/core_api/Dockerfile
+    container_name: zero_bot_core_api
+    restart: unless-stopped
+    ports:
+      # Только localhost. Раньше API висел на всех интерфейсах вообще без
+      # аутентификации: любой, кто дотянулся до порта, мог назначить себе
+      # любой баланс. Сервисы ходят друг к другу по внутренней сети.
+      - "127.0.0.1:8000:8000"
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///data/core_api/db.sqlite3
+      - REDIS_URL=redis://${REDIS_PASSWORD:+:${REDIS_PASSWORD}@}redis:6379/0
+      # Общий секрет для сервис-сервис вызовов. Без него API откажется
+      # обслуживать запросы (fail closed).
+      - CORE_API_TOKEN=${CORE_API_TOKEN:?CORE_API_TOKEN обязателен}
+      # Ключ шифрования приватных ключей TON-кошельков.
+      - WALLET_ENCRYPTION_KEY=${WALLET_ENCRYPTION_KEY:-}
+    volumes:
+      - core_api_data:/data/core_api
+    networks:
+      - zero_bot_net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   # ═══════════════════════════════════════════
   # IA-Mother — Master Bot
@@ -12,27 +45,34 @@ services:
   ia-mother:
     build:
       context: .
-      dockerfile: services/ia-mother/Dockerfile.new
+      dockerfile: services/ia-mother/Dockerfile
     container_name: ia_mother
     restart: unless-stopped
     environment:
       TELEGRAM_API_ID: ${TELEGRAM_API_ID}
       TELEGRAM_API_HASH: ${TELEGRAM_API_HASH}
       IA_MOTHER_BOT_TOKEN: ${IA_MOTHER_BOT_TOKEN}
-      REDIS_URL: redis://redis:6379/0
+      CORE_API_URL: http://core-api:8000
+      CORE_API_TOKEN: ${CORE_API_TOKEN:?CORE_API_TOKEN обязателен}
+      REDIS_URL: redis://${REDIS_PASSWORD:+:${REDIS_PASSWORD}@}redis:6379/0
       LANGFLOW_API_URL: http://langflow:7860
-      SOLANA_RPC_URL: ${SOLANA_RPC_URL:-https://api.devnet.solana.com}
-      REGISTRY_PATH: /data/registry
+      TON_API_KEY: ${TON_API_KEY}
+      TON_NETWORK: ${TON_NETWORK:-mainnet}
+      IAM_COIN_MASTER_ADDRESS: ${IAM_COIN_MASTER_ADDRESS}
+      NFT_COLLECTION_ADDRESS: ${NFT_COLLECTION_ADDRESS}
+      PLATFORM_TON_WALLET: ${PLATFORM_TON_WALLET}
     volumes:
       - registry_data:/data/registry
-      - /var/run/docker.sock:/var/run/docker.sock  # To spawn bot containers
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       redis:
+        condition: service_healthy
+      core-api:
         condition: service_healthy
     networks:
       - zero_bot_net
     healthcheck:
-      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -44,9 +84,13 @@ services:
     image: redis:7-alpine
     container_name: zero_bot_redis
     restart: unless-stopped
-    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    command: >
+      redis-server --appendonly yes --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      ${REDIS_PASSWORD:+--requirepass "$REDIS_PASSWORD"}
     ports:
-      - "6379:6379"
+      # Тоже только localhost — раньше Redis был открыт наружу без пароля.
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     networks:
@@ -59,7 +103,6 @@ services:
 
   # ═══════════════════════════════════════════
   # Langflow — Admin UI + Flow Builder
-  # Visual builder for bot flows, replaces Django admin
   # ═══════════════════════════════════════════
   langflow:
     image: langflowai/langflow:latest
@@ -83,40 +126,118 @@ services:
       retries: 3
 
   # ═══════════════════════════════════════════
-  # GitLab Runner — CI/CD Pipeline
-  # Builds/tests/deploys skills and personalities
+  # Хелпер — публичный бот в группе.
+  # Читает базу знаний, которую пишет Дервалер,
+  # и отвечает только когда к нему обращаются.
   # ═══════════════════════════════════════════
-  gitlab-runner:
-    image: gitlab/gitlab-runner:latest
-    container_name: zero_bot_runner
+  helper-bot:
+    build:
+      context: .
+      dockerfile: services/bot-instance/Dockerfile
+    container_name: helper_bot
     restart: unless-stopped
+    environment:
+      TELEGRAM_API_ID: ${TELEGRAM_API_ID}
+      TELEGRAM_API_HASH: ${TELEGRAM_API_HASH}
+      TELEGRAM_BOT_TOKEN: ${HELPER_BOT_TOKEN}
+      BOT_ID: helper
+      BOT_NAME: ${HELPER_BOT_NAME:-Хелпер}
+      OWNER_ID: ${OWNER_ID:-0}
+      PERSONALITY: ${HELPER_PERSONALITY:-ia}
+      # Публичный чат, где работает хелпер.
+      ALLOWED_CHAT_IDS: ${HELPER_CHAT_ID}
+      CORE_API_URL: http://core-api:8000
+      CORE_API_TOKEN: ${CORE_API_TOKEN:?CORE_API_TOKEN обязателен}
+      REDIS_URL: redis://${REDIS_PASSWORD:+:${REDIS_PASSWORD}@}redis:6379/0
+      # База знаний Дервалера. Том смонтирован в /data/kb, а сам файл
+      # Дервалер пишет в <том>/dervaler/archive.sqlite3 — отсюда вложенный путь.
+      KB_DB_PATH: /data/kb/dervaler/archive.sqlite3
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      LLM_MODEL: ${LLM_MODEL:-deepseek/deepseek-v4-flash-0731}
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - runner_config:/etc/gitlab-runner
-      - runner_cache:/cache
+      - helper_bot_data:/data
+      # Та же БД, что у Дервалера. Монтируем на ЗАПИСЬ: архив пишет Дервалер,
+      # но таблицу faq_items ведёт хелпер (/faq_add, /faq_edit, /faq_publish),
+      # а она лежит в том же файле. С :ro любая правка FAQ падала бы с
+      # "attempt to write a readonly database". Параллельный доступ двух
+      # контейнеров безопасен: SQLite открыт в режиме WAL.
+      - dervaler_data:/data/kb
+    depends_on:
+      redis:
+        condition: service_healthy
     networks:
       - zero_bot_net
+    mem_limit: 512m
+    cpus: 1.0
 
   # ═══════════════════════════════════════════
-  # Bot instances are created DYNAMICALLY
-  # by IA-Mother via Docker API
-  # Template shown below (not auto-started)
+  # Дервалер — архивариус чата
+  # Входит ПОЛЬЗОВАТЕЛЬСКОЙ сессией администратора,
+  # выгружает полный архив чата и ведёт базу знаний.
+  # Не бот: в публичный чат не пишет.
   # ═══════════════════════════════════════════
+  dervaler:
+    build:
+      context: .
+      dockerfile: services/dervaler/Dockerfile
+    container_name: dervaler
+    restart: unless-stopped
+    environment:
+      TELEGRAM_API_ID: ${TELEGRAM_API_ID}
+      TELEGRAM_API_HASH: ${TELEGRAM_API_HASH}
+      # Сессия администратора. Либо строка здесь, либо файл в volume.
+      DERVALER_SESSION: ${DERVALER_SESSION}
+      HELPER_CHAT_ID: ${HELPER_CHAT_ID}
+      DERVALER_ALLOWED_CHAT_IDS: ${DERVALER_ALLOWED_CHAT_IDS:-}
+      DERVALER_ADMIN_ID: ${DERVALER_ADMIN_ID:-0}
+      DERVALER_BATCH_SIZE: ${DERVALER_BATCH_SIZE:-500}
+      DERVALER_WAIT_TIME: ${DERVALER_WAIT_TIME:-1}
+      DERVALER_LIVE: ${DERVALER_LIVE:-true}
+      DATA_DIR: /data
+    volumes:
+      - dervaler_data:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - zero_bot_net
+    # Инжест + эмбеддинги требуют памяти больше, чем у обычного бота.
+    mem_limit: 1g
+    cpus: 1.0
 
-  # zero-bot-template:
-  #   image: zero-bot/bot-instance:latest
-  #   environment:
-  #     TELEGRAM_API_ID: ${TELEGRAM_API_ID}
-  #     TELEGRAM_API_HASH: ${TELEGRAM_API_HASH}
-  #     TELEGRAM_BOT_TOKEN: <dynamic>
-  #     BOT_ID: <dynamic>
-  #     OWNER_TELEGRAM_ID: <dynamic>
-  #     REDIS_URL: redis://redis:6379/0
-  #     LANGFLOW_API_URL: http://langflow:7860
-  #   volumes:
-  #     - bot_<id>_data:/data
-  #   networks:
-  #     - zero_bot_net
+  # ═══════════════════════════════════════════
+  # Скрепка — AI Admin (OpenClaw)
+  # Monitoring, Debug, Orchestration
+  # ═══════════════════════════════════════════
+  skrepka:
+    build:
+      context: .
+      dockerfile: services/skrepka/Dockerfile
+    container_name: skrepka
+    restart: unless-stopped
+    environment:
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      CORE_API_URL: http://core-api:8000
+      CORE_API_TOKEN: ${CORE_API_TOKEN:?CORE_API_TOKEN обязателен}
+      REDIS_URL: redis://${REDIS_PASSWORD:+:${REDIS_PASSWORD}@}redis:6379/0
+      SKREPKA_MONITOR_INTERVAL: 300
+      SKREPKA_AUTO_RESTART: "true"
+      # Чат отладки: куда Скрепка пишет о багах и инцидентах.
+      SKREPKA_BOT_TOKEN: ${SKREPKA_BOT_TOKEN:-}
+      ADMIN_CHAT_ID: ${ADMIN_CHAT_ID:-}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - skrepka_data:/data
+      - skrepka_repos:/repos
+    depends_on:
+      redis:
+        condition: service_healthy
+      core-api:
+        condition: service_healthy
+    networks:
+      - zero_bot_net
 
 volumes:
   redis_data:
@@ -125,9 +246,16 @@ volumes:
     driver: local
   registry_data:
     driver: local
-  runner_config:
+  core_api_data:
     driver: local
-  runner_cache:
+  skrepka_data:
+    driver: local
+  skrepka_repos:
+    driver: local
+  # Сессия администратора — секрет, в git не попадает.
+  dervaler_data:
+    driver: local
+  helper_bot_data:
     driver: local
 
 networks:
