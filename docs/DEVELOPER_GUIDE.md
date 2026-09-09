@@ -19,7 +19,34 @@ Zero Bot — платформа массовой разработки AI-бот�
 - Python 3.12+
 - Git
 - GitHub/GitLab аккаунт
-- Solana кошелёк (для получения IA-Coins)
+- TON кошелёк (для будущих ончейн-выплат; сейчас IA-Coins начисляются
+  в офчейн-реестре платформы)
+
+### Запуск платформы локально
+
+```bash
+cp .env.example .env
+docker compose up -d --build
+```
+
+Минимум, без которого стек не поднимется:
+
+| Переменная | Зачем |
+|---|---|
+| `TELEGRAM_API_ID`, `TELEGRAM_API_HASH` | доступ к Telegram API |
+| `IA_MOTHER_BOT_TOKEN` | токен мастер-бота от BotFather |
+| `CORE_API_TOKEN` | общий секрет сервисов; **без него Core API отвечает 503** |
+
+Полезно задать сразу: `WALLET_ENCRYPTION_KEY` (иначе операции с TON-кошельками
+отклоняются), `OWNER_ID` (создание ботов по умолчанию закрыто),
+`OPENROUTER_API_KEY` (LLM). Полный список — в `.env.example`.
+
+Тесты и сквозной прогон без Docker:
+
+```bash
+pytest
+python scripts/demo_flow.py
+```
 
 ### Install SDK
 
@@ -355,7 +382,9 @@ Set price in `manifest.json`:
 ### Revenue
 
 - **60%** of every install goes to YOU (the creator)
-- Revenue is deposited to your Solana wallet automatically
+- Revenue lands in your platform IAM balance right after the purchase
+  (visible via `/api/v1/users/<id>/balance/`). On-chain payout to a TON
+  wallet is not implemented yet — see STATUS_REPORT.md
 - Track earnings in IA-Mother: "📊 Мои доходы"
 
 ### Free Skills

@@ -46,9 +46,9 @@
    - **OPENAI_API_KEY** — ответы через OpenAI (gpt-4o-mini или gpt-4o).
    - **ANTHROPIC_API_KEY** — ответы через Claude.
 
-2. Для OpenRouter можно указать модель (иначе по умолчанию `google/gemini-2.0-flash-001`):
+2. Для OpenRouter можно указать модель (иначе по умолчанию `deepseek/deepseek-v4-flash-0731`):
    ```bash
-   export OPENROUTER_MODEL="google/gemini-2.0-flash-001"
+   export OPENROUTER_MODEL="deepseek/deepseek-v4-flash-0731"
    # или, например: openai/gpt-4o-mini, anthropic/claude-3.5-sonnet
    ```
 

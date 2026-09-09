@@ -68,7 +68,7 @@ def main() -> int:
             )
             system_path = PERSONALITY_DIR / "prompts" / "system.txt"
             system_prompt = system_path.read_text(encoding="utf-8").strip()
-            model = os.getenv("OPENROUTER_MODEL", "google/gemini-2.0-flash-001") if os.getenv("OPENROUTER_API_KEY") else os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+            model = os.getenv("OPENROUTER_MODEL", "deepseek/deepseek-v4-flash-0731") if os.getenv("OPENROUTER_API_KEY") else os.getenv("OPENAI_MODEL", "gpt-4o-mini")
             r = await client.chat.completions.create(
                 model=model,
                 messages=[

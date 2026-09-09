@@ -11,6 +11,7 @@ import logging
 import os
 from pathlib import Path
 
+import httpx
 from telethon import TelegramClient, events
 
 import test_zero_local_llm as llm_mod
@@ -56,6 +57,17 @@ client = TelegramClient(_session_path, TELEGRAM_API_ID, TELEGRAM_API_HASH, recei
 bot_state = {"level": 0, "xp": 0, "messages_total": 0, "personality": manifest["display_name"]}
 MAX_HISTORY = 10
 chat_history: dict[int, list[dict[str, str]]] = {}
+
+
+async def _delete_bot_webhook(token: str) -> None:
+    """Remove webhook so this script receives updates (otherwise bot stays silent)."""
+    try:
+        async with httpx.AsyncClient() as http:
+            r = await http.post(f"https://api.telegram.org/bot{token}/deleteWebhook")
+            if r.json().get("ok"):
+                logger.info("Webhook removed (bot will receive updates here)")
+    except Exception as e:
+        logger.warning("Could not delete webhook: %s", e)
 
 
 def get_greeting(user_name: str) -> str:
@@ -139,6 +151,7 @@ async def on_message(event):
 
 async def main():
     logger.info("🚀 Запускаю Zero Bot с личностью Ия...")
+    await _delete_bot_webhook(ZERO_BOT_TOKEN)
     await client.start(bot_token=ZERO_BOT_TOKEN)
     me = await client.get_me()
     logger.info("✅ Бот запущен: @%s (%s)", me.username, me.first_name)

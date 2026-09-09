@@ -8,52 +8,77 @@
 ## Architecture
 
 ```
-┌─────────────┐  ┌─────────────┐  ┌─────────────┐
-│  IA-Mother   │  │  Zero Bot   │  │  Zero Bot   │  ...
-│  (master)    │  │  Clone #1   │  │  Clone #2   │
-└──────┬──────┘  └──────┬──────┘  └──────┬──────┘
-       │                │                │
-┌──────┴────────────────┴────────────────┴──────┐
-│                     Redis                      │
-├────────────────────────────────────────────────┤
-│                    Langflow                    │
-├────────────────────────────────────────────────┤
-│                 GitLab Runner                  │
-└────────────────────────────────────────────────┘
+                     ┌──────────────┐
+                     │   Core API   │  FastAPI + SQLite + IAM ledger
+                     └──────┬───────┘
+                            │
+   ┌───────────┬────────────┼────────────┬───────────┐
+   │           │            │            │           │
+┌──┴──────┐ ┌──┴──────┐ ┌───┴──────┐ ┌───┴─────┐ ┌───┴──────┐
+│IA-Mother│ │ Скрепка │ │  Helper  │ │Дервалер │ │ Zero Bot │ ...
+│(master) │ │ (admin) │ │  (group) │ │(archive)│ │ Clone #N │
+└──┬──────┘ └──┬──────┘ └──────────┘ └─────────┘ └──────────┘
+   │           │
+   │     Docker socket → health checks, restarts
+   └──→ spawns zero_bot_<id>
+
+                  Redis · Langflow
 ```
 
 | Container | Purpose |
 |-----------|---------|
+| `core-api` | Backend: users, balances, marketplace, bug reports |
 | `ia-mother` | Master bot: marketplace, exchange, cloning |
-| `zero-bot-{id}` | Individual bot instance (1 per user) |
+| `zero_bot_{id}` | Individual bot instance (1 per user) |
+| `helper-bot` | Group helper: answers from chat history, FAQ |
+| `dervaler` | Archivist worker: ingests chat history via a user session |
+| `skrepka` | AI admin: container health, restarts, bug triage |
 | `redis` | State, pub/sub, skill cache |
 | `langflow` | Admin UI, flow builder |
-| `gitlab-runner` | CI/CD pipelines |
 
 ## Quick Start
 
 ```bash
 cp .env.example .env
-# Fill in TELEGRAM_API_ID, TELEGRAM_API_HASH, IA_MOTHER_BOT_TOKEN
-docker-compose up -d
+docker compose up -d --build
 ```
+
+Minimum required in `.env`:
+
+| Variable | Why |
+|----------|-----|
+| `TELEGRAM_API_ID`, `TELEGRAM_API_HASH` | Telegram API credentials |
+| `IA_MOTHER_BOT_TOKEN` | Master bot token from BotFather |
+| `CORE_API_TOKEN` | Shared secret between services — Core API refuses to serve without it (`openssl rand -hex 32`) |
+
+Core API listens on `127.0.0.1:8000` only. See [STATUS_REPORT.md](STATUS_REPORT.md)
+for what is implemented, partially implemented, or still a stub.
 
 ## Project Structure
 
 ```
 zero-bot/
 ├── services/
-│   ├── ia-mother/          # Master bot (marketplace + exchange)
-│   └── bot-instance/       # Bot template (cloned per user)
+│   ├── core_api/           # FastAPI backend (SQLite + IAM ledger)
+│   ├── ia-mother/          # Master bot (marketplace + exchange + cloning)
+│   ├── bot-instance/       # Bot template (cloned per user)
+│   ├── dervaler/           # Chat archivist (Telethon user session)
+│   └── skrepka/            # AI admin agent
 ├── sdk/                    # zero-bot-sdk (PyPI package)
 │   └── zero_bot_sdk/       # BaseSkill, BasePersonality, CLI
 ├── personalities/
-│   └── ia/                 # Default personality (Ия)
+│   ├── ia/                 # Default personality (Ия)
+│   └── dervaler/           # Archivist personality
+├── examples/
+│   ├── skill-weather/      # Reference skill
+│   └── skill-helper-kb/    # Group helper: KB retrieval + FAQ
 ├── ci/
 │   ├── templates/          # GitLab CI shared pipelines
-│   └── schemas/            # JSON schemas for manifests
+│   └── scripts/            # register_on_ton.py
+├── tests/                  # pytest suite
 ├── docs/                   # Developer documentation
 ├── docker-compose.yml      # Production stack
+├── STATUS_REPORT.md        # What actually works right now
 └── ARCHITECTURE.md         # Full architecture spec
 ```
 
@@ -84,10 +109,21 @@ See [Developer Guide](docs/DEVELOPER_GUIDE.md) for full documentation.
 
 ## Tokenomics
 
-- **IA-Coins** — platform currency (Solana)
-- Revenue split: **60% creator** / 30% platform / 10% Telegram
-- Every skill and personality registered on Solana blockchain
-- Bot ownership via NFT passport
+Two currencies, deliberately kept in two different stores:
+
+| | Stars | IA-Coins (IAM) |
+|---|---|---|
+| Store | SQLite (`balances`) | JSON ledger (`IAMCoinService`) |
+| Pays for | a bot's services, owed to its owner | AI tokens, skills, personalities |
+| Future | stays in the platform | moves to on-chain NFT/jetton mint |
+
+- Chain: **TON** (jettons + NFT passports). Earlier docs said Solana — that is out of date.
+- Revenue split: **60% creator** / 30% platform / 10% Telegram, paid out of the
+  buyer's wallet, so a purchase never changes the total coin supply.
+- Rate is server-side: 1 Star = 0.01 IAM, 1 IAM = 100 Stars.
+
+Not yet implemented: earning Stars (no Telegram Payments integration), metering
+AI token usage, and on-chain mint/burn. See [STATUS_REPORT.md](STATUS_REPORT.md).
 
 ## Default Personality: Ия
 
@@ -99,7 +135,8 @@ See [personalities/ia/](personalities/ia/) for the full personality spec.
 
 ## Docs
 
-- [ARCHITECTURE.md](ARCHITECTURE.md) — Full infrastructure spec
+- [STATUS_REPORT.md](STATUS_REPORT.md) — Verified current state: what works, what is a stub
+- [ARCHITECTURE.md](ARCHITECTURE.md) — Full infrastructure spec (target design)
 - [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md) — How to build skills & personalities
 - [personalities/ia/](personalities/ia/) — Default personality reference
 

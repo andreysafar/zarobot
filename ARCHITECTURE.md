@@ -1,5 +1,9 @@
 # Zero Bot Platform — Infrastructure Architecture
 
+> **Статус.** Это целевой архитектурный документ: он описывает, каким задуман
+> продукт, а не что уже собрано. Сеть — TON. Проверенное состояние реализации
+> — в [STATUS_REPORT.md](STATUS_REPORT.md).
+
 ## Philosophy
 
 > **"1 Bot = 1 Docker Container. 1 Skill = 1 Repo. 1 Personality = 1 Repo."**
@@ -100,7 +104,7 @@ User → /start → IA-Mother
 
 ```
 1. User clicks "Создать бота" in IA-Mother
-2. IA-Mother creates BotPassport (NFT on Solana)
+2. IA-Mother creates BotPassport (NFT on TON)
 3. IA-Mother requests new bot token from BotFather API
 4. GitLab Runner spins up new container:
    - Image: zero-bot/bot-instance:latest
@@ -180,7 +184,7 @@ alice/skill-weather/
   "author": {
     "name": "alice",
     "github": "alice",
-    "solana_address": "ALiCe..."
+    "ton_address": "ALiCe..."
   },
   "category": "utilities",
   "tags": ["weather", "forecast", "api"],
@@ -229,7 +233,7 @@ alice/skill-weather/
     "required_skills": []
   },
 
-  "solana": {
+  "ton": {
     "registry_address": null,
     "tx_hash": null
   }
@@ -318,7 +322,7 @@ bob/personality-sarcastic/
   "author": {
     "name": "bob",
     "github": "bob",
-    "solana_address": "B0b..."
+    "ton_address": "B0b..."
   },
   "category": "entertainment",
   "tags": ["humor", "sarcasm", "friend", "russian"],
@@ -366,7 +370,7 @@ bob/personality-sarcastic/
     "conflicts_with": []
   },
 
-  "solana": {
+  "ton": {
     "registry_address": null,
     "tx_hash": null
   }
@@ -402,7 +406,7 @@ Developer pushes to skill/personality repo
 │  └── Push to registry           │
 │                                  │
 │  Stage 4: PUBLISH               │
-│  ├── Register on Solana         │
+│  ├── Register on TON         │
 │  ├── Update skill-registry      │
 │  ├── Notify IA-Mother           │
 │  └── Available in marketplace   │
@@ -517,12 +521,12 @@ publish:registry:
         -F "manifest=@manifest.json"
     - echo "Published to registry"
 
-publish:solana:
+publish:ton:
   stage: publish
   only:
     - tags
   script:
-    - python ci/scripts/register_on_solana.py
+    - python ci/scripts/register_on_ton.py
         --name="${SKILL_NAME}"
         --version="${SKILL_VERSION}"
         --author="${AUTHOR_SOLANA_ADDRESS}"
@@ -590,20 +594,20 @@ zero-bot-sdk new personality my-cool-persona
 ```
 User installs Skill (25 IA-Coins)
          │
-         ├── 60% → Skill Creator (15 IA-Coins)     ← Solana transfer
+         ├── 60% → Skill Creator (15 IA-Coins)     ← TON transfer
          ├── 30% → Platform (7.5 IA-Coins)          ← Platform wallet
          └── 10% → Telegram fee (2.5 IA-Coins)      ← Stars conversion
 ```
 
 ### On-Chain Registration
 
-Every published skill/personality is registered on Solana:
+Every published skill/personality is registered on TON:
 
 ```
 ┌──────────────────────────────────────┐
-│         Solana Program               │
+│         TON Contract               │
 │                                      │
-│  PDA: skill_registry/{skill_name}    │
+│  Адрес: skill_registry/{skill_name}    │
 │  ├── creator: Pubkey                 │
 │  ├── version: string                 │
 │  ├── price: u64 (lamports)           │
@@ -613,11 +617,11 @@ Every published skill/personality is registered on Solana:
 │  ├── status: Active/Deprecated       │
 │  └── created_at: i64                 │
 │                                      │
-│  PDA: personality_registry/{name}    │
+│  Адрес: personality_registry/{name}    │
 │  ├── (same structure)                │
 │  └── ...                             │
 │                                      │
-│  PDA: bot_passport/{bot_id}          │
+│  Адрес: bot_passport/{bot_id}          │
 │  ├── owner: Pubkey                   │
 │  ├── level: u8                       │
 │  ├── xp: u64                         │
@@ -786,12 +790,12 @@ zero-bot/zero-bot/                    ← MAIN REPO
 │   │   ├── skill-manifest.schema.json
 │   │   └── personality-manifest.schema.json
 │   └── scripts/
-│       ├── register_on_solana.py
+│       ├── register_on_ton.py
 │       ├── validate_manifest.py
 │       └── deploy_to_container.py
 │
-├── blockchain/                       ← Solana programs
-│   └── solana/
+├── blockchain/                       ← TON contracts
+│   └── ton/
 │       ├── registry.py
 │       ├── passport.py
 │       └── billing.py
@@ -836,7 +840,7 @@ git push -u origin main
 
 # 7. After approval: tag release
 git tag v1.0.0 && git push --tags
-# GitLab Runner: build → publish → register on Solana
+# GitLab Runner: build → publish → register on TON
 # Skill appears in IA-Mother marketplace
 ```
 
@@ -884,14 +888,14 @@ git push origin main
 |---------|----------|----------|
 | Architecture | Single agent + plugins | 1 bot = 1 container |
 | Skills | Local plugins in one repo | Separate repos + marketplace |
-| Monetization | None | IA-Coin tokenomics (Solana) |
+| Monetization | None | IA-Coin tokenomics (TON) |
 | Deployment | Single process | Docker containers via GitLab CI |
 | Admin UI | CLI/Config | Langflow visual builder |
 | Bot identity | One agent | Each bot = unique Tamagotchi |
 | Ownership | Developer owns agent | User owns bot (NFT passport) |
 | Revenue | None | 60% creator / 30% platform / 10% Telegram |
 | Discovery | README list | IA-Mother marketplace bot |
-| Registry | GitHub topics | On-chain Solana registry |
+| Registry | GitHub topics | On-chain TON registry |
 
 ---
 

@@ -25,7 +25,7 @@ async def call_llm(system_prompt: str, messages: list, fallback: str) -> str:
         try:
             client = AsyncOpenAI(base_url="https://openrouter.ai/api/v1", api_key=OPENROUTER_API_KEY)
             r = await client.chat.completions.create(
-                model=os.getenv("OPENROUTER_MODEL", "google/gemini-2.0-flash-001"),
+                model=os.getenv("OPENROUTER_MODEL", "deepseek/deepseek-v4-flash-0731"),
                 messages=[{"role": "system", "content": system_prompt}] + messages,
                 max_tokens=1024,
             )

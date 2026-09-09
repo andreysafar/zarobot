@@ -6,6 +6,7 @@ import logging
 import os
 from pathlib import Path
 
+import httpx
 from telethon import TelegramClient, events
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
@@ -70,6 +71,17 @@ MSG_DEFAULT = (
 )
 
 
+async def _delete_bot_webhook(token: str) -> None:
+    """Remove webhook so this script receives updates (otherwise bot stays silent)."""
+    try:
+        async with httpx.AsyncClient() as http:
+            r = await http.post(f"https://api.telegram.org/bot{token}/deleteWebhook")
+            if r.json().get("ok"):
+                logger.info("Webhook removed (bot will receive updates here)")
+    except Exception as e:
+        logger.warning("Could not delete webhook: %s", e)
+
+
 def _is_cmd(text: str, prefix: str) -> bool:
     t = (text or "").strip()
     return t.startswith(prefix) if t else False
@@ -130,6 +142,7 @@ async def on_message(event):
 
 async def main():
     logger.info("🚀 Запускаю IA-Mother бота...")
+    await _delete_bot_webhook(IA_MOTHER_BOT_TOKEN)
     await client.start(bot_token=IA_MOTHER_BOT_TOKEN)
     me = await client.get_me()
     logger.info("✅ Бот запущен: @%s (%s)", me.username, me.first_name)

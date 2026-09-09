@@ -6,7 +6,7 @@ SKILL_MANIFEST_TEMPLATE = {
     "display_name": "",
     "description": "A new Zero Bot skill",
     "version": "0.1.0",
-    "author": {"name": "", "github": "", "solana_address": ""},
+    "author": {"name": "", "github": "", "ton_address": ""},
     "category": "utilities",
     "tags": [],
     "icon": "icon.png",
@@ -22,7 +22,7 @@ SKILL_MANIFEST_TEMPLATE = {
         "revenue_share": {"creator": 0.60, "platform": 0.30, "telegram": 0.10},
     },
     "compatibility": {"min_bot_level": 0, "max_skills_conflict": [], "required_skills": []},
-    "solana": {"registry_address": None, "tx_hash": None},
+    "ton": {"registry_address": None, "tx_hash": None},
 }
 
 PERSONALITY_MANIFEST_TEMPLATE = {
@@ -31,7 +31,7 @@ PERSONALITY_MANIFEST_TEMPLATE = {
     "display_name": "",
     "description": "A new Zero Bot personality",
     "version": "0.1.0",
-    "author": {"name": "", "github": "", "solana_address": ""},
+    "author": {"name": "", "github": "", "ton_address": ""},
     "category": "general",
     "tags": [],
     "language": "ru",
@@ -51,7 +51,7 @@ PERSONALITY_MANIFEST_TEMPLATE = {
         "revenue_share": {"creator": 0.60, "platform": 0.30, "telegram": 0.10},
     },
     "compatibility": {"min_bot_level": 0, "conflicts_with": []},
-    "solana": {"registry_address": None, "tx_hash": None},
+    "ton": {"registry_address": None, "tx_hash": None},
 }
 
 HANDLER_TEMPLATE = '''\
