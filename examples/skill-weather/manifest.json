@@ -1,0 +1,53 @@
+{
+  "schema_version": "1.0",
+  "name": "weather-forecast",
+  "display_name": "Прогноз погоды",
+  "description": "Получай точный прогноз погоды для любого города мира. Поддерживает текущую погоду, прогноз на 5 дней и погодные предупреждения.",
+  "version": "1.0.0",
+  "author": {
+    "name": "weather_dev",
+    "github": "yourusername"
+  },
+  "category": "utilities",
+  "category_icon": "🛠️",
+  "tags": ["weather", "forecast", "api"],
+  "icon": "icon.png",
+  "entry_point": "handler.py",
+  "handler_class": "WeatherSkill",
+  "commands": [
+    {
+      "trigger": "/weather",
+      "description": "Get current weather",
+      "usage": "/weather Moscow"
+    }
+  ],
+  "message_patterns": [
+    "какая погода",
+    "weather in",
+    "прогноз"
+  ],
+  "config_schema": {
+    "api_key": {
+      "type": "string",
+      "required": true,
+      "description": "OpenWeatherMap API key"
+    },
+    "units": {
+      "type": "string",
+      "default": "metric",
+      "description": "Temperature units",
+      "enum": ["metric", "imperial"]
+    }
+  },
+  "requirements": ["httpx>=0.27"],
+  "pricing": {
+    "price_ia_coins": 0,
+    "is_free": true,
+    "model": "one_time"
+  },
+  "compatibility": {
+    "min_bot_level": 0,
+    "max_skills_conflict": [],
+    "required_skills": []
+  }
+}

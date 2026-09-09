@@ -1,0 +1,46 @@
+{
+  "schema_version": "1.0",
+  "name": "helper-kb",
+  "display_name": "База знаний чата",
+  "description": "Отвечает на вопросы по всему архиву чата и ведёт FAQ. Публичные команды доступны всем, управление FAQ — только администраторам чата.",
+  "version": "0.1.0",
+  "author": {
+    "name": "NeuroRancho",
+    "github": "safar"
+  },
+  "category": "knowledge",
+  "category_icon": "📚",
+  "tags": ["kb", "faq", "search", "group", "helper"],
+  "entry_point": "handler.py",
+  "handler_class": "HelperKbSkill",
+
+  "commands": [
+    {"trigger": "/faq", "description": "Показать FAQ чата", "usage": "/faq"},
+    {"trigger": "/ask", "description": "Задать вопрос архиву чата", "usage": "/ask как деплоить?"},
+    {"trigger": "/faq_add", "description": "[админ] Добавить запись в FAQ", "usage": "/faq_add вопрос | ответ"},
+    {"trigger": "/faq_edit", "description": "[админ] Изменить ответ", "usage": "/faq_edit 3 | новый ответ"},
+    {"trigger": "/faq_del", "description": "[админ] Удалить запись", "usage": "/faq_del 3"},
+    {"trigger": "/faq_publish", "description": "[админ] Опубликовать черновик", "usage": "/faq_publish 3"},
+    {"trigger": "/ingest_status", "description": "Статус выгрузки архива", "usage": "/ingest_status"}
+  ],
+
+  "config_schema": {
+    "context_limit": {
+      "type": "integer",
+      "default": 10,
+      "description": "Сколько найденных сообщений показывать в ответе"
+    }
+  },
+
+  "requirements": [],
+  "pricing": {
+    "price_ia_coins": 0,
+    "is_free": true,
+    "model": "one_time"
+  },
+  "compatibility": {
+    "min_bot_level": 0,
+    "max_skills_conflict": [],
+    "required_skills": []
+  }
+}
